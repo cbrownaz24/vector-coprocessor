@@ -41,7 +41,11 @@ topdir = ..
 subpkgs = \
   vc \
   imuldiv \
+  riscvbyp \
+  riscvlong \
+  riscvooo \
   riscvvec \
+  riscvvecchained \
 
 #-------------------------------------------------------------------------
 # List of Assembly Tests
@@ -92,6 +96,35 @@ tests = \
   riscv-xor.vmh \
   riscv-xori.vmh \
   riscv-vec.vmh \
+  riscv-stride.vmh \
+  riscv-redsum.vmh \
+  riscv-bmark-linpack-scalar.vmh \
+  riscv-bmark-linpack-vector.vmh \
+  riscv-bmark-daxpy-scalar-N16.vmh \
+  riscv-bmark-daxpy-scalar-N32.vmh \
+  riscv-bmark-daxpy-scalar-N64.vmh \
+  riscv-bmark-daxpy-scalar-N128.vmh \
+  riscv-bmark-daxpy-scalar-N256.vmh \
+  riscv-bmark-daxpy-vector-N16.vmh \
+  riscv-bmark-daxpy-vector-N32.vmh \
+  riscv-bmark-daxpy-vector-N64.vmh \
+  riscv-bmark-daxpy-vector-N128.vmh \
+  riscv-bmark-daxpy-vector-N256.vmh \
+  riscv-bmark-linpack-scalar-4x4.vmh \
+  riscv-bmark-linpack-scalar-8x8.vmh \
+  riscv-bmark-linpack-scalar-16x16.vmh \
+  riscv-bmark-linpack-scalar-32x32.vmh \
+  riscv-bmark-linpack-vector-4x4.vmh \
+  riscv-bmark-linpack-vector-8x8.vmh \
+  riscv-bmark-linpack-vector-16x16.vmh \
+  riscv-bmark-linpack-vector-32x32.vmh \
+  riscv-bmark-linpack-pipelined-16x16.vmh \
+  riscv-bmark-chain-depth-1.vmh \
+  riscv-bmark-chain-depth-2.vmh \
+  riscv-bmark-chain-depth-3.vmh \
+  riscv-bmark-chain-depth-4.vmh \
+  riscv-bmark-chain-depth-5.vmh \
+  riscv-bmark-chain-depth-6.vmh \
 
 riscvvec_rtl_sim = riscvvec-sim
 riscvvec_rtl_rand_sim = riscvvec-randdelay-sim

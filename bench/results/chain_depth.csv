@@ -1,0 +1,13 @@
+processor,benchmark,mode,size,cycles,instructions,ipc,passed,note
+riscvvec,chain-depth,vector,1,98,45,0.45918367346938777,True,ok
+riscvvec,chain-depth,vector,2,107,46,0.42990654205607476,True,ok
+riscvvec,chain-depth,vector,3,116,47,0.4051724137931034,True,ok
+riscvvec,chain-depth,vector,4,125,48,0.384,True,ok
+riscvvec,chain-depth,vector,5,134,49,0.3656716417910448,True,ok
+riscvvec,chain-depth,vector,6,143,50,0.34965034965034963,True,ok
+riscvvec-chained,chain-depth,vector,1,98,45,0.45918367346938777,True,ok
+riscvvec-chained,chain-depth,vector,2,107,46,0.42990654205607476,True,ok
+riscvvec-chained,chain-depth,vector,3,107,47,0.4392523364485981,True,ok
+riscvvec-chained,chain-depth,vector,4,116,48,0.41379310344827586,True,ok
+riscvvec-chained,chain-depth,vector,5,116,49,0.4224137931034483,True,ok
+riscvvec-chained,chain-depth,vector,6,125,50,0.4,True,ok

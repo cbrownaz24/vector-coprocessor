@@ -1,16 +1,16 @@
 //========================================================================
-// riscv-vec-macros.h - Macros for vector coprocessor instructions
+// riscv-vec-macros.h - macros for vec coproc instrs
 //========================================================================
-// Since the assembler doesn't know our custom-0 vector instructions,
-// we use .word to emit raw 32-bit encodings.
+// asm doesnt know our custom-0 vec instrs so we .word the raw 32-bit
+// enconding ourselves.
 //
-// Custom-0 opcode = 0x0B (0001011)
-// R-type format: funct7[31:25] | rs2[24:20] | rs1[19:15] | funct3[14:12] | rd[11:7] | opcode[6:0]
+// custom-0 opcode = 0x0B (0001011)
+// R-type: funct7[31:25] | rs2[24:20] | rs1[19:15] | funct3[14:12] | rd[11:7] | opcode[6:0]
 
 #ifndef RISCV_VEC_MACROS_H
 #define RISCV_VEC_MACROS_H
 
-// Opcode for all vector instructions
+// opcode for all vec instrs
 #define VEC_OPCODE 0x0B
 
 // funct3 categories
@@ -21,13 +21,13 @@
 #define VCOMP    0x4
 #define VREDUCE  0x5
 
-// Encode an R-type custom-0 instruction
+// encode R-type custom-0 instr
 // .word (funct7 << 25) | (rs2 << 20) | (rs1 << 15) | (funct3 << 12) | (rd << 7) | opcode
 #define VEC_R_INST(funct7, rs2, rs1, funct3, rd) \
     .word ((funct7 << 25) | (rs2 << 20) | (rs1 << 15) | (funct3 << 12) | (rd << 7) | VEC_OPCODE)
 
 //------------------------------------------------------------------------
-// Vector-Vector Arithmetic (funct3 = 0x0)
+// vec-vec arith (funct3 = 0x0)
 //------------------------------------------------------------------------
 #define VVADD(vd, vs1, vs2)   VEC_R_INST(0x00, vs2, vs1, VV_ARITH, vd)
 #define VVSUB(vd, vs1, vs2)   VEC_R_INST(0x01, vs2, vs1, VV_ARITH, vd)
@@ -42,8 +42,8 @@
 #define VVSRA(vd, vs1, vs2)   VEC_R_INST(0x0A, vs2, vs1, VV_ARITH, vd)
 
 //------------------------------------------------------------------------
-// Vector-Scalar Arithmetic (funct3 = 0x1)
-// rs2 field holds the scalar register index
+// vec-scalar arith (funct3 = 0x1)
+// rs2 field holds the scalar reg idx
 //------------------------------------------------------------------------
 #define VSADD(vd, vs1, rs2)   VEC_R_INST(0x00, rs2, vs1, VS_ARITH, vd)
 #define VSSUB(vd, vs1, rs2)   VEC_R_INST(0x01, rs2, vs1, VS_ARITH, vd)
@@ -52,7 +52,7 @@
 #define VSREM(vd, vs1, rs2)   VEC_R_INST(0x04, rs2, vs1, VS_ARITH, vd)
 
 //------------------------------------------------------------------------
-// Vector Memory (funct3 = 0x2)
+// vec mem (funct3 = 0x2)
 // VLW: vd = load from M[x[rs1]]
 // VSW: store vs1 to M[x[rs2]]  (rs1 field = vs1, rs2 field = base reg)
 // VLWS: vd = strided load from M[x[rs1] + i*x[rs2]]
@@ -61,17 +61,20 @@
 #define VLW(vd, rs1)           VEC_R_INST(0x00, 0, rs1, VMEM, vd)
 #define VSW(vs1, rs2)          VEC_R_INST(0x01, rs2, vs1, VMEM, 0)
 #define VLWS(vd, rs1, rs2)     VEC_R_INST(0x02, rs2, rs1, VMEM, vd)
-#define VSWS(vs1, rs1, rs2)    VEC_R_INST(0x03, rs2, rs1, VMEM, 0)
+// VSWS encoding: rs1 slot = base_reg, rs2 slot = stride_reg, and vs1
+// (the vec src reg) is encoded in the rd slot. CoreCtrl picks vs1 from
+// rd[2:0] when funct3=VMEM && funct7=0x03.
+#define VSWS(vs1, rs1, rs2)    VEC_R_INST(0x03, rs2, rs1, VMEM, vs1)
 
 //------------------------------------------------------------------------
-// Vector Config (funct3 = 0x3)
+// vec cfg (funct3 = 0x3)
 //------------------------------------------------------------------------
 #define SETVL(rd, rs1)         VEC_R_INST(0x00, 0, rs1, VCONFIG, rd)
 #define CVM()                  VEC_R_INST(0x01, 0, 0, VCONFIG, 0)
 #define VFENCE()               VEC_R_INST(0x02, 0, 0, VCONFIG, 0)
 
 //------------------------------------------------------------------------
-// Vector Comparison (funct3 = 0x4) - sets mask register
+// vec cmp (funct3 = 0x4) - sets mask reg
 //------------------------------------------------------------------------
 #define VSEQ(vs1, vs2)         VEC_R_INST(0x00, vs2, vs1, VCOMP, 0)
 #define VSLT(vs1, vs2)         VEC_R_INST(0x01, vs2, vs1, VCOMP, 0)
@@ -81,7 +84,7 @@
 #define VSNE(vs1, vs2)         VEC_R_INST(0x05, vs2, vs1, VCOMP, 0)
 
 //------------------------------------------------------------------------
-// Vector Reduction (funct3 = 0x5) - result to scalar rd
+// vec reduction (funct3 = 0x5) - result to scalar rd
 //------------------------------------------------------------------------
 #define VREDSUM(rd, vs1)       VEC_R_INST(0x00, 0, vs1, VREDUCE, rd)
 #define VREDAND(rd, vs1)       VEC_R_INST(0x01, 0, vs1, VREDUCE, rd)

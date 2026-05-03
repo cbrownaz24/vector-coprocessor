@@ -1,44 +1,44 @@
 //=========================================================================
-// riscv-bmark-vvadd-vector.S - Vector VVADD benchmark (32 elements)
+// riscv-bmark-vvadd-vector.S - vec VVADD bench, 32 elems
 //=========================================================================
 // dest[i] = src0[i] + src1[i] for i=0..31
-// Uses vector coprocessor with SETVL=32 (one vector op covers all)
+// uses vec coproc w/ setvl=32 (one vec op covers all)
 
 #include "riscv-macros.h"
 #include "riscv-vec-macros.h"
 
         TEST_RISCV_BEGIN
 
-        // Setup pointers
+        // ptrs
         la    x10, src0
         la    x11, src1
         la    x12, dest
 
-        // Set VL=32
+        // vl=32
         li    x13, 32
         SETVL(14, 13)
         VFENCE()
         CVM()
         VFENCE()
 
-        // Stats on
+        // stats on
         li    x1, 1
         csrw  10, x1
         nop; nop; nop; nop; nop
 
-        // Vector VVADD: 3 vector instructions instead of 32 loop iterations
+        // vec VVADD: 3 vec instrs instead of 32 loop iters
         VLW(0, 10)             // v0 = src0[0:31]
         VLW(1, 11)             // v1 = src1[0:31]
-        VVADD(2, 0, 1)         // v2 = v0 + v1
+        VVADD(2, 0, 1)         // v2 = v0+v1
         VSW(2, 12)             // dest[0:31] = v2
-        VFENCE()               // wait for completion
+        VFENCE()               // wait for done
 
-        // Stats off
+        // stats off
         li    x1, 0
         csrw  10, x1
         nop; nop; nop; nop; nop
 
-        // Verify first and last elements
+        // check 1st + last elem
         la    x12, dest
         lw    x14, 0(x12)
         TEST_CHECK_EQ(x14, 11)        // 10+1=11

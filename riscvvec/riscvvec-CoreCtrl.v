@@ -531,6 +531,16 @@ module riscv_CoreCtrl
   // These are wired up in the Core module from the datapath
 
   assign vec_cmd_val_Dhl_out = vec_cmd_val_Dhl;
+
+  // VSWS overload: rs1 field holds base_reg, rs2 holds stride, so vs1 (the vector source register being stored) is encoded in the rd
+  // slot of the instruction instead. Detect VSWS and route vs1 from there. (funct3=VMEM=3'b010, funct7 lower = 4'd3.)
+  wire is_vsws_Dhl =
+       (ir_Dhl[`RISCV_INST_MSG_FUNCT3] == 3'b010) &&
+       (ir_Dhl[28:25] == 4'd3);
+
+  wire [2:0] vec_vs1_field_Dhl = is_vsws_Dhl ? inst_rd_Dhl[2:0]
+                                              : inst_rs1_Dhl[2:0];
+
   assign vec_cmd_msg_Dhl_out = {
     vec_category_Dhl,             // [118:117] category
     inst_rd_Dhl,                  // [116:112] rd_scalar (for SETVL/reductions)
@@ -538,7 +548,7 @@ module riscv_CoreCtrl
     32'd0,                        // [79:48]   base_addr - filled by Core from dpath
     32'd0,                        // [47:16]   scalar_val - filled by Core from dpath
     inst_rs2_Dhl[2:0],            // [15:13]   vs2
-    inst_rs1_Dhl[2:0],            // [12:10]   vs1
+    vec_vs1_field_Dhl,            // [12:10]   vs1 (rd-slot for VSWS)
     inst_rd_Dhl[2:0],             // [9:7]     vd
     vec_opcode_fn_Dhl             // [6:0]     opcode_fn
   };

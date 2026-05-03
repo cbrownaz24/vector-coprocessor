@@ -1,8 +1,8 @@
 //=========================================================================
-// riscv-bmark-saxpy-vector.S - Vector scale benchmark (16 elements)
+// riscv-bmark-saxpy-vector.S - vec scale bench, 16 elems
 //=========================================================================
 // dest[i] = 5 * src[i] for i=0..15
-// Uses VSMUL
+// uses VSMUL
 
 #include "riscv-macros.h"
 #include "riscv-vec-macros.h"
@@ -13,29 +13,29 @@
         la    x11, dest_data
         li    x12, 5
 
-        // Set VL=16
+        // vl=16
         li    x13, 16
         SETVL(14, 13)
         VFENCE()
         CVM()
         VFENCE()
 
-        // Stats on
+        // stats on
         li    x1, 1
         csrw  10, x1
         nop; nop; nop; nop; nop
 
         VLW(0, 10)             // v0 = src[0:15]
-        VSMUL(1, 0, 12)        // v1 = 5 * v0
+        VSMUL(1, 0, 12)        // v1 = 5*v0
         VSW(1, 11)             // dest = v1
         VFENCE()
 
-        // Stats off
+        // stats off
         li    x1, 0
         csrw  10, x1
         nop; nop; nop; nop; nop
 
-        // Verify
+        // verfy
         la    x11, dest_data
         lw    x14, 0(x11)
         TEST_CHECK_EQ(x14, 50)

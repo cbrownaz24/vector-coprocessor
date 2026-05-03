@@ -1,0 +1,62 @@
+//=========================================================================
+// riscv-bmark-daxpy-vector-N16.S - Vector DAXPY at N=16
+//=========================================================================
+// Strip-mined: each iteration handles up to VLMAX=32 elements.
+
+#include "riscv-macros.h"
+#include "riscv-vec-macros.h"
+
+        TEST_RISCV_BEGIN
+
+        // CVM (default mask = all 1s)
+        li    x13, 16
+        SETVL(14, 13)
+        VFENCE()
+        CVM()
+        VFENCE()
+
+        la    x10, x_data
+        la    x11, y_data
+        li    x12, 3
+        li    x6, 16                     // remaining
+
+        li    x1, 1
+        csrw  10, x1
+        nop; nop; nop; nop; nop
+
+strip_loop:
+        SETVL(14, 6)                    // VL = min(remaining, VLMAX)
+        VFENCE()
+        VLW(0, 10)                      // v0 = x[strip]
+        VLW(1, 11)                      // v1 = y[strip]
+        VSMUL(2, 0, 12)                 // v2 = a*v0
+        VVADD(3, 2, 1)                  // v3 = v2 + v1
+        VSW(3, 11)                      // y[strip] = v3
+        VFENCE()
+
+        slli  x15, x14, 2               // bytes = VL * 4
+        add   x10, x10, x15
+        add   x11, x11, x15
+        sub   x6, x6, x14
+        bnez  x6, strip_loop
+
+        li    x1, 0
+        csrw  10, x1
+        nop; nop; nop; nop; nop
+
+        la    x11, y_data
+        lw    x14, 0(x11)
+        TEST_CHECK_EQ(x14, 103)
+        lw    x14, 60(x11)
+        TEST_CHECK_EQ(x14, 163)
+
+        TEST_RISCV_END
+
+        .data
+        .align 4
+x_data:
+        .word    1,    2,    3,    4,    5,    6,    7,    8
+        .word    9,   10,   11,   12,   13,   14,   15,   16
+y_data:
+        .word  100,  101,  102,  103,  104,  105,  106,  107
+        .word  108,  109,  110,  111,  112,  113,  114,  115
