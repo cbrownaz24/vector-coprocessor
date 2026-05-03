@@ -47,27 +47,33 @@ module riscv_VecUnit
 );
 
   //----------------------------------------------------------------------
-  // Command Queue
+  // Command Queue (with peek-2 for chaining)
   //----------------------------------------------------------------------
 
   wire        q_deq_val;
   wire        q_deq_rdy;
   wire [118:0] q_deq_msg;
+  wire        q_deq_val_2;
+  wire        q_deq_rdy_2;
+  wire [118:0] q_deq_msg_2;
   wire        q_empty;
   wire        q_full;
 
   riscv_VecCmdQueue cmd_queue
   (
-    .clk     (clk),
-    .reset   (reset),
-    .enq_val (vec_cmd_val),
-    .enq_rdy (vec_cmd_rdy),
-    .enq_msg (vec_cmd_msg),
-    .deq_val (q_deq_val),
-    .deq_rdy (q_deq_rdy),
-    .deq_msg (q_deq_msg),
-    .empty   (q_empty),
-    .full    (q_full)
+    .clk       (clk),
+    .reset     (reset),
+    .enq_val   (vec_cmd_val),
+    .enq_rdy   (vec_cmd_rdy),
+    .enq_msg   (vec_cmd_msg),
+    .deq_val   (q_deq_val),
+    .deq_rdy   (q_deq_rdy),
+    .deq_msg   (q_deq_msg),
+    .deq_val_2 (q_deq_val_2),
+    .deq_msg_2 (q_deq_msg_2),
+    .deq_rdy_2 (q_deq_rdy_2),
+    .empty     (q_empty),
+    .full      (q_full)
   );
 
   assign vec_queue_full = q_full;
@@ -76,6 +82,7 @@ module riscv_VecUnit
   // Control Unit
   //----------------------------------------------------------------------
 
+  // Producer signals
   wire [ 4:0] vec_alu_fn;
   wire [ 2:0] vd_addr;
   wire [ 2:0] vs1_addr;
@@ -87,6 +94,18 @@ module riscv_VecUnit
   wire        mask_wen;
   wire        mask_clear;
   wire [31:0] mask_reg;
+
+  // Consumer signals
+  wire        chain_active;
+  wire [ 4:0] cons_alu_fn;
+  wire [ 2:0] cons_vd_addr;
+  wire [ 2:0] cons_vsnf_addr;
+  wire        cons_vrf_wen;
+  wire        cons_use_scalar;
+  wire [31:0] cons_scalar_val;
+  wire        cons_forward_in0;
+  wire        cons_forward_in1;
+
   wire        ctrl_memreq_val;
   wire        ctrl_memreq_rw;
   wire [31:0] ctrl_memreq_addr;
@@ -104,6 +123,9 @@ module riscv_VecUnit
     .cmd_val         (q_deq_val),
     .cmd_rdy         (q_deq_rdy),
     .cmd_msg         (q_deq_msg),
+    .cmd_val_2       (q_deq_val_2),
+    .cmd_msg_2       (q_deq_msg_2),
+    .cmd_rdy_2       (q_deq_rdy_2),
 
     .vec_idle        (vec_idle),
 
@@ -118,6 +140,16 @@ module riscv_VecUnit
     .mask_wen        (mask_wen),
     .mask_clear      (mask_clear),
     .mask_reg        (mask_reg),
+
+    .chain_active    (chain_active),
+    .cons_alu_fn     (cons_alu_fn),
+    .cons_vd_addr    (cons_vd_addr),
+    .cons_vsnf_addr  (cons_vsnf_addr),
+    .cons_vrf_wen    (cons_vrf_wen),
+    .cons_use_scalar (cons_use_scalar),
+    .cons_scalar_val (cons_scalar_val),
+    .cons_forward_in0(cons_forward_in0),
+    .cons_forward_in1(cons_forward_in1),
 
     .vec_memreq_val  (ctrl_memreq_val),
     .vec_memreq_rdy  (vec_memreq_rdy),
@@ -142,34 +174,42 @@ module riscv_VecUnit
   // Datapath
   //----------------------------------------------------------------------
 
-  // When vector unit receives a memory response (load data), the write data
-  // should come from memory, not ALU. ctrl_memreq_rw tells us the last request type.
-  // Since ctrl_memreq_rw is combinational now, it's 0 during LWAIT (load).
   wire is_load_writeback = vec_memresp_val && !ctrl_memreq_rw;
 
   riscv_VecDpath dpath
   (
-    .clk          (clk),
-    .reset        (reset),
+    .clk              (clk),
+    .reset            (reset),
 
-    .vec_alu_fn   (vec_alu_fn),
-    .vd_addr      (vd_addr),
-    .vs1_addr     (vs1_addr),
-    .vs2_addr     (vs2_addr),
-    .elem_idx     (elem_idx),
-    .vrf_wen      (vrf_wen),
-    .use_scalar   (use_scalar_ctrl),
-    .scalar_val   (scalar_val_ctrl),
-    .mask_wen     (mask_wen),
-    .mask_clear   (mask_clear),
-    .mask_reg     (mask_reg),
+    .vec_alu_fn       (vec_alu_fn),
+    .vd_addr          (vd_addr),
+    .vs1_addr         (vs1_addr),
+    .vs2_addr         (vs2_addr),
+    .elem_idx         (elem_idx),
+    .vrf_wen          (vrf_wen),
+    .use_scalar       (use_scalar_ctrl),
+    .scalar_val       (scalar_val_ctrl),
+    .mask_wen         (mask_wen),
+    .mask_clear       (mask_clear),
 
-    .memresp_data (vec_memresp_data),
-    .memreq_data  (vec_memreq_data),
-    .mem_load_wen (is_load_writeback),
+    .chain_active     (chain_active),
+    .cons_alu_fn      (cons_alu_fn),
+    .cons_vd_addr     (cons_vd_addr),
+    .cons_vsnf_addr   (cons_vsnf_addr),
+    .cons_vrf_wen     (cons_vrf_wen),
+    .cons_use_scalar  (cons_use_scalar),
+    .cons_scalar_val  (cons_scalar_val),
+    .cons_forward_in0 (cons_forward_in0),
+    .cons_forward_in1 (cons_forward_in1),
 
-    .vs1_rdata    (vs1_rdata_from_dpath),
-    .alu_result   (alu_result)
+    .mask_reg         (mask_reg),
+
+    .memresp_data     (vec_memresp_data),
+    .memreq_data      (vec_memreq_data),
+    .mem_load_wen     (is_load_writeback),
+
+    .vs1_rdata        (vs1_rdata_from_dpath),
+    .alu_result       (alu_result)
   );
 
   //----------------------------------------------------------------------
