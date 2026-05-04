@@ -11,9 +11,21 @@ SUBTITLE
 
 ────────────────────────────────────────────────────────────
 
-[GRAPHIC — full width, top 65% of slide]
-  perf_results/slide_s1_code_compare.png
-  (scalar DAXPY loop vs vectorized — let the code speak)
+CODE COMPARISON  (two columns, monospace font, top 65% of slide)
+
+  ┌─────────────────────────────────────┬──────────────────────────────────────┐
+  │  SCALAR  (9 instr × 32 iter = 288)  │  VECTOR  (5 commands total)          │
+  ├─────────────────────────────────────┼──────────────────────────────────────┤
+  │  1:  lw   x14,  0(x10)              │      VLW   v0, x10   # x[0..31]      │
+  │      lw   x15,  0(x11)              │      VLW   v1, x11   # y[0..31]      │
+  │      mul  x16, x14, x12  ← stall    │      VSMUL v2, v0, x12 # a·x[i]      │
+  │      add  x16, x16, x15             │      VVADD v3, v2, v1  # +y[i]       │
+  │      sw   x16,  0(x11)              │      VSW   v3, x11   # store         │
+  │      addi x10, x10, 4               │                                      │
+  │      addi x11, x11, 4               │      scalar dispatches 5 commands    │
+  │      addi x13, x13, -1              │      vector executes them in         │
+  │      bne  x13, x0, 1b               │      parallel while scalar continues │
+  └─────────────────────────────────────┴──────────────────────────────────────┘
 
 ────────────────────────────────────────────────────────────
 
@@ -53,7 +65,7 @@ TITLE
 LEFT COLUMN  (specs — one line each)
 
   Command Queue
-    4-entry FIFO  ·  119-bit entries
+    4F-entry FIFO  ·  119-bit entries
     Scalar stalls only on VFENCE or when full
 
   Vector Register File
@@ -180,7 +192,7 @@ SUBTITLE
 
 [GRAPHIC — bottom 40% of slide, full width]
   bench/plots/fig11_flops_per_cycle.png
-  (FLOPs/cycle bars: scalar vs vector for all 6 kernels)
+  (ops/cycle bars: scalar vs vector for all 6 kernels)
 
 ────────────────────────────────────────────────────────────
 
@@ -188,7 +200,7 @@ NOTE  (speaker: walk through the table below if needed)
 
   Cycle counts  (riscvbyp scalar  vs  riscvvec vector, N=32 unless noted)
 
-    Kernel          Scalar   Vector   Speedup   FLOPs   FLOPs/cy (vec)
+    Kernel          Scalar   Vector   Speedup   ops     ops/cy (vec)
     ──────────────────────────────────────────────────────────────────
     VVADD-32          452      242      1.87×      32       0.132
     SAXPY-16          739      112      6.60×      16       0.143
@@ -354,7 +366,7 @@ Scalar processor cycle counts (same scalar benchmarks):
 ISA test averages (riscvbyp, 43 scalar tests): 361 cycles avg
 ISA test averages (riscvvec, 3 vector tests):  246 cycles avg
 
-FLOPs/cycle summary:
+ops/cycle summary:
   Kernel       Scalar    Vector    Ratio
   vvadd        0.071     0.132     1.9×
   saxpy        0.022     0.143     6.6×

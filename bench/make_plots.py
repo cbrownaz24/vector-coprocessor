@@ -590,19 +590,12 @@ def fig_flops_per_cycle(processors, main_rows, benchmarks_cfg) -> Path:
     for bar, v in zip(bars2, vector_fpc):
         ax.text(bar.get_x() + bar.get_width()/2, v + 0.003, f"{v:.3f}",
                 ha="center", va="bottom", fontsize=8.5)
-    for i in range(len(labels)):
-        if scalar_fpc[i] > 0:
-            ratio = vector_fpc[i] / scalar_fpc[i]
-            ymax = max(scalar_fpc[i], vector_fpc[i])
-            ax.text(x[i], ymax * 1.35, f"{ratio:.1f}x",
-                    ha="center", va="center", fontsize=9, fontweight="bold",
-                    color="#b04a3f")
     ax.set_xticks(x)
     ax.set_xticklabels(labels)
-    ax.set_ylabel("FLOPs / cycle")
-    ax.set_title("Compute efficiency: FLOPs per cycle (scalar vs vector)")
+    ax.set_ylabel("ops / cycle")
+    ax.set_title("Compute throughput: ops per cycle (scalar vs vector)")
     ax.legend(loc="upper left")
-    ax.set_ylim(0, max(vector_fpc) * 1.55)
+    ax.set_ylim(0, max(vector_fpc) * 1.25)
     fig.tight_layout()
     return L.save(fig, "fig11_flops_per_cycle.png")
 
