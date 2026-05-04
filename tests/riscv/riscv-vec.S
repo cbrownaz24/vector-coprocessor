@@ -1,12 +1,11 @@
 //=========================================================================
-// riscv-vec.S - Comprehensive vector coprocessor tests
+// riscv-vec.S - bigger vec coproc tests
 //=========================================================================
-// Tests: SETVL, VLW, VSW, VVADD, VVSUB, VVMUL, VSADD, VSMUL, VFENCE,
-//        VREDSUM, CVM, and basic decoupled operation.
+// tests: SETVL, VLW, VSW, VVADD, VVSUB, VVMUL, VSADD, VSMUL, VFENCE,
+//        VREDSUM, CVM, basic decouple op.
 //
-// Strategy: Load known data into memory, use VLW to load into vector
-// registers, perform vector operations, VSW to store back, then use
-// scalar LW to check results.
+// idea: load known data into mem, VLW into vregs, do vec op, VSW back
+// out, scalar LW to check.
 
 #include "riscv-macros.h"
 #include "riscv-vec-macros.h"
@@ -14,31 +13,31 @@
         TEST_RISCV_BEGIN
 
         //=================================================================
-        // Test 1: SETVL - Set vector length to 4
+        // t1: SETVL - vl=4
         //=================================================================
         li    x10, 4
-        SETVL(11, 10)           // x11 = SETVL(x10) => should return 4
+        SETVL(11, 10)           // x11 = SETVL(x10) -> should be 4
         VFENCE()
-        // Note: SETVL result goes back via reduce interface
-        // We can't easily check x11 without the reduce path working
-        // So we proceed and check via vector operations
+        // setvl result comes back thru reduce iface. cant easily check
+        // x11 w/o reduce path working, so we just keep going + verify
+        // via vec ops.
 
         //=================================================================
-        // Test 2: VLW + VSW - Load and store a vector
+        // t2: VLW + VSW - load/store a vec
         //=================================================================
-        // Set up source data in memory
+        // src data in mem
         la    x12, src_data_a
         la    x13, dst_data
 
-        // Load vector from src_data_a into v0
-        VLW(0, 12)              // v0 = M[x12], VL elements
+        // load vec from src_data_a into v0
+        VLW(0, 12)              // v0 = M[x12], vl elems
         VFENCE()
 
-        // Store v0 to dst_data
+        // store v0 to dst_data
         VSW(0, 13)              // M[x13] = v0
         VFENCE()
 
-        // Verify: load back scalarly and check
+        // verify: scalar loadback + check
         lw    x14, 0(x13)
         TEST_CHECK_EQ(x14, 10)
         lw    x14, 4(x13)
@@ -49,17 +48,17 @@
         TEST_CHECK_EQ(x14, 40)
 
         //=================================================================
-        // Test 3: VVADD - Vector-vector addition
+        // t3: VVADD
         //=================================================================
         la    x12, src_data_a
         la    x13, src_data_b
         la    x15, dst_data
 
-        VLW(0, 12)              // v0 = [10, 20, 30, 40]
+        VLW(0, 12)              // v0 = [10,20,30,40]
         VFENCE()
-        VLW(1, 13)              // v1 = [1, 2, 3, 4]
+        VLW(1, 13)              // v1 = [1,2,3,4]
         VFENCE()
-        VVADD(2, 0, 1)          // v2 = v0 + v1 = [11, 22, 33, 44]
+        VVADD(2, 0, 1)          // v2 = v0+v1 = [11,22,33,44]
         VFENCE()
         VSW(2, 15)              // store v2
         VFENCE()
@@ -74,11 +73,11 @@
         TEST_CHECK_EQ(x14, 44)
 
         //=================================================================
-        // Test 4: VVSUB - Vector-vector subtraction
+        // t4: VVSUB
         //=================================================================
         la    x15, dst_data
 
-        VVSUB(3, 0, 1)          // v3 = v0 - v1 = [9, 18, 27, 36]
+        VVSUB(3, 0, 1)          // v3 = v0-v1 = [9,18,27,36]
         VFENCE()
         VSW(3, 15)
         VFENCE()
@@ -93,11 +92,11 @@
         TEST_CHECK_EQ(x14, 36)
 
         //=================================================================
-        // Test 5: VVMUL - Vector-vector multiply
+        // t5: VVMUL
         //=================================================================
         la    x15, dst_data
 
-        VVMUL(4, 0, 1)          // v4 = v0 * v1 = [10, 40, 90, 160]
+        VVMUL(4, 0, 1)          // v4 = v0*v1 = [10,40,90,160]
         VFENCE()
         VSW(4, 15)
         VFENCE()
@@ -112,12 +111,12 @@
         TEST_CHECK_EQ(x14, 160)
 
         //=================================================================
-        // Test 6: VSADD - Vector-scalar add
+        // t6: VSADD - vec-scalar add
         //=================================================================
         la    x15, dst_data
         li    x16, 100
 
-        VSADD(5, 0, 16)         // v5 = v0 + 100 = [110, 120, 130, 140]
+        VSADD(5, 0, 16)         // v5 = v0+100 = [110,120,130,140]
         VFENCE()
         VSW(5, 15)
         VFENCE()
@@ -132,12 +131,12 @@
         TEST_CHECK_EQ(x14, 140)
 
         //=================================================================
-        // Test 7: VSMUL - Vector-scalar multiply
+        // t7: VSMUL - vec-scalar mul
         //=================================================================
         la    x15, dst_data
         li    x16, 3
 
-        VSMUL(6, 1, 16)          // v6 = v1 * 3 = [3, 6, 9, 12]
+        VSMUL(6, 1, 16)          // v6 = v1*3 = [3,6,9,12]
         VFENCE()
         VSW(6, 15)
         VFENCE()
@@ -152,7 +151,7 @@
         TEST_CHECK_EQ(x14, 12)
 
         //=================================================================
-        // Test 8: Edge case - VL=1 (single element)
+        // t8: edge case - vl=1 (single elem)
         //=================================================================
         li    x10, 1
         SETVL(11, 10)
@@ -169,23 +168,23 @@
         lw    x14, 0(x15)
         TEST_CHECK_EQ(x14, 10)
 
-        // Restore VL=4
+        // restore vl=4
         li    x10, 4
         SETVL(11, 10)
         VFENCE()
 
         //=================================================================
-        // Test 9: Edge case - negative numbers
+        // t9: edge - neg numbers
         //=================================================================
         la    x12, src_data_neg
         la    x13, src_data_b
         la    x15, dst_data
 
-        VLW(0, 12)              // v0 = [-1, -10, -100, -1000]
+        VLW(0, 12)              // v0 = [-1,-10,-100,-1000]
         VFENCE()
-        VLW(1, 13)              // v1 = [1, 2, 3, 4]
+        VLW(1, 13)              // v1 = [1,2,3,4]
         VFENCE()
-        VVADD(2, 0, 1)          // v2 = [-1+1, -10+2, -100+3, -1000+4] = [0, -8, -97, -996]
+        VVADD(2, 0, 1)          // v2 = [0,-8,-97,-996]
         VFENCE()
         VSW(2, 15)
         VFENCE()
@@ -200,7 +199,7 @@
         TEST_CHECK_EQ(x14, -996)
 
         //=================================================================
-        // Test 10: VVAND / VVOR / VVXOR - bitwise operations
+        // t10: VVAND/VVOR/VVXOR - bitwise ops
         //=================================================================
         la    x12, src_data_bits_a
         la    x13, src_data_bits_b
@@ -211,7 +210,7 @@
         VLW(1, 13)              // v1 = [0x00FF00FF, 0xF0F0F0F0, 0x55555555, 0x87654321]
         VFENCE()
 
-        // AND
+        // and
         VVAND(2, 0, 1)          // v2 = v0 & v1
         VFENCE()
         VSW(2, 15)
@@ -226,7 +225,7 @@
         lw    x14, 12(x15)
         TEST_CHECK_EQ(x14, 0x02244220)   // 12345678 & 87654321
 
-        // OR
+        // or
         VVOR(3, 0, 1)
         VFENCE()
         VSW(3, 15)
@@ -239,7 +238,7 @@
         lw    x14, 8(x15)
         TEST_CHECK_EQ(x14, 0xFFFFFFFF)   // AAAAAAAA | 55555555
 
-        // XOR
+        // xor
         VVXOR(4, 0, 1)
         VFENCE()
         VSW(4, 15)
@@ -251,15 +250,15 @@
         TEST_CHECK_EQ(x14, 0xFFFFFFFF)   // AAAAAAAA ^ 55555555
 
         //=================================================================
-        // Test 11: VSSUB - Vector-scalar subtract
+        // t11: VSSUB - vec-scalar sub
         //=================================================================
         la    x12, src_data_a
         la    x15, dst_data
         li    x16, 5
 
-        VLW(0, 12)              // v0 = [10, 20, 30, 40]
+        VLW(0, 12)              // v0 = [10,20,30,40]
         VFENCE()
-        VSSUB(1, 0, 16)          // v1 = v0 - 5 = [5, 15, 25, 35]
+        VSSUB(1, 0, 16)          // v1 = v0-5 = [5,15,25,35]
         VFENCE()
         VSW(1, 15)
         VFENCE()
@@ -274,8 +273,8 @@
         TEST_CHECK_EQ(x14, 35)
 
         //=================================================================
-        // Test 12: Multiple vector ops without VFENCE (decoupled test)
-        // Queue should buffer these
+        // t12: bunch of vec ops w/o VFENCE - decouple test
+        // queue should buffer them
         //=================================================================
         la    x12, src_data_a
         la    x13, src_data_b
@@ -284,7 +283,7 @@
         VLW(0, 12)
         VLW(1, 13)
         VVADD(2, 0, 1)
-        VFENCE()                 // Only fence at end
+        VFENCE()                 // only fence at end
         VSW(2, 15)
         VFENCE()
 
@@ -294,28 +293,28 @@
         TEST_CHECK_EQ(x14, 44)
 
         //=================================================================
-        // Test 13: Zero vector length
+        // t13: vl=0
         //=================================================================
         li    x10, 0
         SETVL(11, 10)
         VFENCE()
 
-        // Operations with VL=0 should be no-ops
+        // ops w/ vl=0 should be no-ops
         la    x15, dst_data
-        // Write known values first
+        // wr known vals first
         li    x14, 0xDEAD
         sw    x14, 0(x15)
 
         la    x12, src_data_a
-        VLW(0, 12)              // Should not load anything
+        VLW(0, 12)              // shouldnt load anything
         VFENCE()
-        VSW(0, 15)              // Should not store anything
+        VSW(0, 15)              // shouldnt store anything
         VFENCE()
 
         lw    x14, 0(x15)
-        TEST_CHECK_EQ(x14, 0xDEAD)  // Should be unchanged
+        TEST_CHECK_EQ(x14, 0xDEAD)  // unchaned
 
-        // Restore VL=4
+        // restore vl=4
         li    x10, 4
         SETVL(11, 10)
         VFENCE()
@@ -327,7 +326,7 @@
         TEST_RISCV_END
 
         //=================================================================
-        // Test Data Section
+        // test data
         //=================================================================
         .data
         .align 4

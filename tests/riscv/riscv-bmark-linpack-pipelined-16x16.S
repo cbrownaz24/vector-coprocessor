@@ -1,0 +1,151 @@
+//=========================================================================
+// riscv-bmark-linpack-pipelined-16x16.S - Vector matvec WITHOUT per-row fence
+//=========================================================================
+// Each row's reduction lands in a unique scalar register (x16..x31), so
+// the scalar core can keep pushing the next row's vector ops without
+// waiting. Single VFENCE at the very end. Designed to actually exercise
+// command queue depth.
+
+#include "riscv-macros.h"
+#include "riscv-vec-macros.h"
+
+        TEST_RISCV_BEGIN
+
+        li    x13, 16
+        SETVL(14, 13)
+        VFENCE()
+        CVM()
+        VFENCE()
+
+        la    x11, x_data
+        la    x12, y_data
+        VLW(0, 11)
+        VFENCE()
+
+        li    x1, 1
+        csrw  10, x1
+        nop; nop; nop; nop; nop
+
+        la    x10, A_data
+        VLW(1, 10)
+        VVMUL(2, 0, 1)
+        VREDSUM(16, 2)
+        addi  x10, x10, 64
+        VLW(1, 10)
+        VVMUL(2, 0, 1)
+        VREDSUM(17, 2)
+        addi  x10, x10, 64
+        VLW(1, 10)
+        VVMUL(2, 0, 1)
+        VREDSUM(18, 2)
+        addi  x10, x10, 64
+        VLW(1, 10)
+        VVMUL(2, 0, 1)
+        VREDSUM(19, 2)
+        addi  x10, x10, 64
+        VLW(1, 10)
+        VVMUL(2, 0, 1)
+        VREDSUM(20, 2)
+        addi  x10, x10, 64
+        VLW(1, 10)
+        VVMUL(2, 0, 1)
+        VREDSUM(21, 2)
+        addi  x10, x10, 64
+        VLW(1, 10)
+        VVMUL(2, 0, 1)
+        VREDSUM(22, 2)
+        addi  x10, x10, 64
+        VLW(1, 10)
+        VVMUL(2, 0, 1)
+        VREDSUM(23, 2)
+        addi  x10, x10, 64
+        VLW(1, 10)
+        VVMUL(2, 0, 1)
+        VREDSUM(24, 2)
+        addi  x10, x10, 64
+        VLW(1, 10)
+        VVMUL(2, 0, 1)
+        VREDSUM(25, 2)
+        addi  x10, x10, 64
+        VLW(1, 10)
+        VVMUL(2, 0, 1)
+        VREDSUM(26, 2)
+        addi  x10, x10, 64
+        VLW(1, 10)
+        VVMUL(2, 0, 1)
+        VREDSUM(27, 2)
+        addi  x10, x10, 64
+        VLW(1, 10)
+        VVMUL(2, 0, 1)
+        VREDSUM(28, 2)
+        addi  x10, x10, 64
+        VLW(1, 10)
+        VVMUL(2, 0, 1)
+        VREDSUM(29, 2)
+        addi  x10, x10, 64
+        VLW(1, 10)
+        VVMUL(2, 0, 1)
+        VREDSUM(30, 2)
+        addi  x10, x10, 64
+        VLW(1, 10)
+        VVMUL(2, 0, 1)
+        VREDSUM(31, 2)
+        addi  x10, x10, 64
+        VFENCE()                        // single drain
+
+        li    x1, 0
+        csrw  10, x1
+        nop; nop; nop; nop; nop
+
+        // Now flush all reductions to memory
+        la    x12, y_data
+        sw    x16, 0(x12)
+        sw    x17, 4(x12)
+        sw    x18, 8(x12)
+        sw    x19, 12(x12)
+        sw    x20, 16(x12)
+        sw    x21, 20(x12)
+        sw    x22, 24(x12)
+        sw    x23, 28(x12)
+        sw    x24, 32(x12)
+        sw    x25, 36(x12)
+        sw    x26, 40(x12)
+        sw    x27, 44(x12)
+        sw    x28, 48(x12)
+        sw    x29, 52(x12)
+        sw    x30, 56(x12)
+        sw    x31, 60(x12)
+
+        // Verify
+        la    x12, y_data
+        lw    x14, 0(x12)
+        TEST_CHECK_EQ(x14, 136)
+        lw    x14, 60(x12)
+        TEST_CHECK_EQ(x14, 3976)
+
+        TEST_RISCV_END
+
+        .data
+        .align 4
+A_data:
+        .word    1,    2,    3,    4,    5,    6,    7,    8,    9,   10,   11,   12,   13,   14,   15,   16
+        .word   17,   18,   19,   20,   21,   22,   23,   24,   25,   26,   27,   28,   29,   30,   31,   32
+        .word   33,   34,   35,   36,   37,   38,   39,   40,   41,   42,   43,   44,   45,   46,   47,   48
+        .word   49,   50,   51,   52,   53,   54,   55,   56,   57,   58,   59,   60,   61,   62,   63,   64
+        .word   65,   66,   67,   68,   69,   70,   71,   72,   73,   74,   75,   76,   77,   78,   79,   80
+        .word   81,   82,   83,   84,   85,   86,   87,   88,   89,   90,   91,   92,   93,   94,   95,   96
+        .word   97,   98,   99,  100,  101,  102,  103,  104,  105,  106,  107,  108,  109,  110,  111,  112
+        .word  113,  114,  115,  116,  117,  118,  119,  120,  121,  122,  123,  124,  125,  126,  127,  128
+        .word  129,  130,  131,  132,  133,  134,  135,  136,  137,  138,  139,  140,  141,  142,  143,  144
+        .word  145,  146,  147,  148,  149,  150,  151,  152,  153,  154,  155,  156,  157,  158,  159,  160
+        .word  161,  162,  163,  164,  165,  166,  167,  168,  169,  170,  171,  172,  173,  174,  175,  176
+        .word  177,  178,  179,  180,  181,  182,  183,  184,  185,  186,  187,  188,  189,  190,  191,  192
+        .word  193,  194,  195,  196,  197,  198,  199,  200,  201,  202,  203,  204,  205,  206,  207,  208
+        .word  209,  210,  211,  212,  213,  214,  215,  216,  217,  218,  219,  220,  221,  222,  223,  224
+        .word  225,  226,  227,  228,  229,  230,  231,  232,  233,  234,  235,  236,  237,  238,  239,  240
+        .word  241,  242,  243,  244,  245,  246,  247,  248,  249,  250,  251,  252,  253,  254,  255,  256
+x_data:
+        .word    1,    1,    1,    1,    1,    1,    1,    1
+        .word    1,    1,    1,    1,    1,    1,    1,    1
+y_data:
+        .space 64

@@ -1,0 +1,50 @@
+{
+  "_comment": "All processor sources are now consolidated under vector-coprocessor/. build_dir is relative to bench/.",
+  "processors": [
+    {
+      "name": "riscvbyp",
+      "label": "5-stage bypass",
+      "build_dir": "../build",
+      "sim_binary": "riscvbyp-sim",
+      "is_vector_capable": false,
+      "color": "#777777",
+      "description": "Course-provided 5-stage bypassing pipeline with iterative muldiv. Baseline."
+    },
+    {
+      "name": "riscvlong",
+      "label": "Longer pipeline",
+      "build_dir": "../build",
+      "sim_binary": "riscvlong-sim",
+      "is_vector_capable": false,
+      "color": "#3a7ca5",
+      "description": "Longer pipeline with fully pipelined integer multiply/divide; eliminates muldiv stalls."
+    },
+    {
+      "name": "riscvooo",
+      "label": "OOO dual-issue",
+      "build_dir": "../build",
+      "sim_binary": "riscvooo-sim",
+      "is_vector_capable": false,
+      "color": "#9c528b",
+      "description": "Out-of-order dual-issue superscalar with scoreboard and ROB."
+    },
+    {
+      "name": "riscvvec",
+      "label": "Vector + 5-stage",
+      "build_dir": "../build",
+      "sim_binary": "riscvvec-sim",
+      "is_vector_capable": true,
+      "color": "#1f6f8b",
+      "description": "5-stage bypassing pipeline with decoupled vector coprocessor (master design)."
+    },
+    {
+      "name": "riscvvec-chained",
+      "label": "Vector + chaining",
+      "build_dir": "../build",
+      "sim_binary": "riscvvec-chained-sim",
+      "is_vector_capable": true,
+      "color": "#b04a3f",
+      "description": "Vector coprocessor with Cray-style producer/consumer chaining."
+    }
+  ]
+}

@@ -1,0 +1,96 @@
+{
+  "_comment": "Benchmark catalog. 'group' assigns benchmarks to plot panels.",
+  "benchmarks": [
+    {
+      "name": "vvadd",
+      "group": "kernels",
+      "scalar_vmh": "riscv-bmark-vvadd-scalar.vmh",
+      "vector_vmh": "riscv-bmark-vvadd-vector.vmh",
+      "size": 32,
+      "vec_dispatches": 6,
+      "description": "32-element vector add, the simplest memory-bound kernel."
+    },
+    {
+      "name": "saxpy",
+      "group": "kernels",
+      "scalar_vmh": "riscv-bmark-saxpy-scalar.vmh",
+      "vector_vmh": "riscv-bmark-saxpy-vector.vmh",
+      "size": 16,
+      "vec_dispatches": 5,
+      "description": "16-element scale: y = a*x. One multiply per element."
+    },
+    {
+      "name": "daxpy",
+      "group": "kernels",
+      "scalar_vmh": "riscv-bmark-daxpy-scalar.vmh",
+      "vector_vmh": "riscv-bmark-daxpy-vector.vmh",
+      "size": 32,
+      "vec_dispatches": 8,
+      "description": "32-element y = a*x + y. Has VSMUL->VVADD chainable producer/consumer."
+    },
+    {
+      "name": "linpack",
+      "group": "kernels",
+      "scalar_vmh": "riscv-bmark-linpack-scalar-16x16.vmh",
+      "vector_vmh": "riscv-bmark-linpack-vector-16x16.vmh",
+      "size": 256,
+      "vec_dispatches": 64,
+      "description": "16x16 matrix-vector multiply (LINPACK kernel)."
+    },
+    {
+      "name": "ubmark-vvadd",
+      "group": "ubmarks",
+      "scalar_vmh": "ubmark-vvadd.vmh",
+      "vector_vmh": null,
+      "size": 100,
+      "description": "C-language vvadd (100 elements). Compiled scalar, run on all processors."
+    },
+    {
+      "name": "ubmark-cmplx-mult",
+      "group": "ubmarks",
+      "scalar_vmh": "ubmark-cmplx-mult.vmh",
+      "vector_vmh": null,
+      "size": 100,
+      "description": "C complex-number multiplication. Multiply-heavy."
+    },
+    {
+      "name": "ubmark-bin-search",
+      "group": "ubmarks",
+      "scalar_vmh": "ubmark-bin-search.vmh",
+      "vector_vmh": null,
+      "size": 100,
+      "description": "C binary search. Branch-heavy, control-flow-bound."
+    },
+    {
+      "name": "ubmark-masked-filter",
+      "group": "ubmarks",
+      "scalar_vmh": "ubmark-masked-filter.vmh",
+      "vector_vmh": null,
+      "size": 100,
+      "description": "C masked image filter with conditional execution."
+    }
+  ],
+  "scaling_sweeps": {
+    "daxpy_n": {
+      "_comment": "DAXPY at varying N for scaling study.",
+      "sizes": [16, 32, 64, 128, 256],
+      "scalar_vmh_template": "riscv-bmark-daxpy-scalar-N{N}.vmh",
+      "vector_vmh_template": "riscv-bmark-daxpy-vector-N{N}.vmh"
+    },
+    "linpack_size": {
+      "_comment": "LINPACK matvec at varying matrix dimension N (NxN).",
+      "sizes": [4, 8, 16, 32],
+      "scalar_vmh_template": "riscv-bmark-linpack-scalar-{N}x{N}.vmh",
+      "vector_vmh_template": "riscv-bmark-linpack-vector-{N}x{N}.vmh"
+    }
+  },
+  "queue_sweep_benchmark": {
+    "_comment": "Pipelined-LINPACK is designed to actually fill the command queue (no per-row VFENCE), making queue-depth sensitivity visible.",
+    "vector_vmh": "riscv-bmark-linpack-pipelined-16x16.vmh"
+  },
+  "chain_depth_study": {
+    "_comment": "N consecutive RAW-dependent VVADDs. Compares master vec (no chaining) vs chained vec at depths 1..6.",
+    "depths": [1, 2, 3, 4, 5, 6],
+    "vmh_template": "riscv-bmark-chain-depth-{N}.vmh"
+  }
+}

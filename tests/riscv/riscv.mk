@@ -53,4 +53,33 @@ riscv_srcs += \
   riscv-bmark-daxpy-vector.S \
   riscv-bmark-saxpy-scalar.S \
   riscv-bmark-saxpy-vector.S \
+  riscv-bmark-linpack-scalar.S \
+  riscv-bmark-linpack-vector.S \
+  riscv-stride.S \
+  riscv-redsum.S \
+  riscv-bmark-daxpy-scalar-N16.S \
+  riscv-bmark-daxpy-scalar-N32.S \
+  riscv-bmark-daxpy-scalar-N64.S \
+  riscv-bmark-daxpy-scalar-N128.S \
+  riscv-bmark-daxpy-scalar-N256.S \
+  riscv-bmark-daxpy-vector-N16.S \
+  riscv-bmark-daxpy-vector-N32.S \
+  riscv-bmark-daxpy-vector-N64.S \
+  riscv-bmark-daxpy-vector-N128.S \
+  riscv-bmark-daxpy-vector-N256.S \
+  riscv-bmark-linpack-scalar-4x4.S \
+  riscv-bmark-linpack-scalar-8x8.S \
+  riscv-bmark-linpack-scalar-16x16.S \
+  riscv-bmark-linpack-scalar-32x32.S \
+  riscv-bmark-linpack-vector-4x4.S \
+  riscv-bmark-linpack-vector-8x8.S \
+  riscv-bmark-linpack-vector-16x16.S \
+  riscv-bmark-linpack-vector-32x32.S \
+  riscv-bmark-linpack-pipelined-16x16.S \
+  riscv-bmark-chain-depth-6.S \
+  riscv-bmark-chain-depth-5.S \
+  riscv-bmark-chain-depth-4.S \
+  riscv-bmark-chain-depth-3.S \
+  riscv-bmark-chain-depth-2.S \
+  riscv-bmark-chain-depth-1.S \
 
