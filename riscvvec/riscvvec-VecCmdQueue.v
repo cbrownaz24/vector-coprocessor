@@ -1,45 +1,43 @@
-//=========================================================================
-// Vector Command Queue
-//=========================================================================
-// 4-entry FIFO queue between the scalar core and the vector unit.
-// Exposes the head AND the second entry so the control unit can detect
-// chaining opportunities and dequeue two commands in one cycle.
-
+// 4-entry fifo btwn scalar core and vec unit. each slot holds 1 decoded vec cmd.
 `ifndef RISCV_VEC_CMD_QUEUE_V
 `define RISCV_VEC_CMD_QUEUE_V
 
+// CMD_QUEUE_DEPTH/PTR_SZ overridable at compile time via iverilog -DVEC_CMD_QUEUE_DEPTH=8 -DVEC_CMD_QUEUE_PTR_SZ=3; must set both
+// NOTE: PTR_SZ = log2(DEPTH)
+`ifndef VEC_CMD_QUEUE_DEPTH
+  `define VEC_CMD_QUEUE_DEPTH 4
+`endif
+`ifndef VEC_CMD_QUEUE_PTR_SZ
+  `define VEC_CMD_QUEUE_PTR_SZ 2
+`endif
+
 module riscv_VecCmdQueue
 (
-  input         clk,
-  input         reset,
+  input clk,
+  input reset,
 
-  // Enqueue interface (from scalar core)
-  input         enq_val,
-  output        enq_rdy,
-  input  [118:0] enq_msg,
+  // enq side (from scalar core)
+  input enq_val,
+  output enq_rdy,
+  input [118:0] enq_msg,
 
-  // Dequeue interface (head entry)
-  output        deq_val,
-  input         deq_rdy,
+  // deq side (to vec unit)
+  output deq_val,
+  input deq_rdy,
   output [118:0] deq_msg,
 
-  // Peek at second entry (for chaining)
-  output        deq_val_2,
-  output [118:0] deq_msg_2,
-  input         deq_rdy_2,    // when high together with deq_rdy, double-dequeue
-
-  // Status
-  output        empty,
-  output        full
+  output empty,
+  output full
 );
 
-  localparam NUM_ENTRIES = 4;
-  localparam PTR_SZ = 2;
+  localparam NUM_ENTRIES = `VEC_CMD_QUEUE_DEPTH;
+  localparam PTR_SZ = `VEC_CMD_QUEUE_PTR_SZ;  // log2(NUM_ENTRIES)
 
   reg [118:0] entries [0:NUM_ENTRIES-1];
-  reg [PTR_SZ:0] head;
+  reg [PTR_SZ:0] head;  // extra bit to tell full vs empty
   reg [PTR_SZ:0] tail;
 
+  // ptr cmp, msb tracks wrap
   wire [PTR_SZ-1:0] head_idx = head[PTR_SZ-1:0];
   wire [PTR_SZ-1:0] tail_idx = tail[PTR_SZ-1:0];
   wire [PTR_SZ-1:0] head_idx_p1 = head_idx + 1'b1;
@@ -48,7 +46,7 @@ module riscv_VecCmdQueue
   wire [PTR_SZ:0] occupancy = tail - head;
 
   assign empty = (head == tail);
-  assign full  = (head_idx == tail_idx) && (head[PTR_SZ] != tail[PTR_SZ]);
+  assign full = (head_idx == tail_idx) && (head[PTR_SZ] != tail[PTR_SZ]);
 
   assign enq_rdy = !full;
   assign deq_val = !empty;
@@ -68,7 +66,6 @@ module riscv_VecCmdQueue
         entries[tail_idx] <= enq_msg;
         tail <= tail + 1;
       end
-      // Single or double dequeue
       if (deq_val && deq_rdy) begin
         if (deq_rdy_2 && deq_val_2)
           head <= head + 2;

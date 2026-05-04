@@ -1,8 +1,8 @@
 //=========================================================================
-// riscv-bmark-daxpy-vector.S - Vector DAXPY benchmark (32 elements)
+// riscv-bmark-daxpy-vector.S - vec daxpy bench, 32 elems
 //=========================================================================
-// y[i] = a * x[i] + y[i] for i=0..31
-// Uses vector coprocessor: VSMUL + VVADD
+// y[i] = a*x[i] + y[i] for i=0..31
+// uses vec coproc: VSMUL + VVADD
 
 #include "riscv-macros.h"
 #include "riscv-vec-macros.h"
@@ -11,34 +11,34 @@
 
         la    x10, x_data
         la    x11, y_data
-        li    x12, 3           // scalar a = 3
+        li    x12, 3           // scalar a=3
 
-        // Set VL=32
+        // vl=32
         li    x13, 32
         SETVL(14, 13)
         VFENCE()
         CVM()
         VFENCE()
 
-        // Stats on
+        // stats on
         li    x1, 1
         csrw  10, x1
         nop; nop; nop; nop; nop
 
-        // Vector DAXPY
+        // vec daxpy
         VLW(0, 10)             // v0 = x[0:31]
         VLW(1, 11)             // v1 = y[0:31]
-        VSMUL(2, 0, 12)        // v2 = a * v0
-        VVADD(3, 2, 1)         // v3 = v2 + v1 = a*x + y
+        VSMUL(2, 0, 12)        // v2 = a*v0
+        VVADD(3, 2, 1)         // v3 = v2+v1 = a*x+y
         VSW(3, 11)             // y[0:31] = v3
         VFENCE()
 
-        // Stats off
+        // stats off
         li    x1, 0
         csrw  10, x1
         nop; nop; nop; nop; nop
 
-        // Verify
+        // verify
         la    x11, y_data
         lw    x14, 0(x11)
         TEST_CHECK_EQ(x14, 103)       // 3*1 + 100

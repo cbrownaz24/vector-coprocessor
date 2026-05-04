@@ -1,13 +1,3 @@
-//=========================================================================
-// Vector Coprocessor Control Unit (FSM) - chaining edition
-//=========================================================================
-// Adds a chain-issue path: when the head of the command queue is an
-// arithmetic op and the second entry has a RAW dependency on it, both
-// commands are dequeued together and executed in lockstep in
-// S_EXEC_CHAIN. The consumer's chained operand is forwarded from the
-// producer's ALU output (combinational), and the consumer's other
-// operand comes from the regfile's third read port.
-
 `ifndef RISCV_VEC_CTRL_V
 `define RISCV_VEC_CTRL_V
 
@@ -72,45 +62,20 @@ module riscv_VecCtrl
   input      [31:0] vs1_rdata
 );
 
-  //----------------------------------------------------------------------
-  // Command field extraction
-  //----------------------------------------------------------------------
+  // cmd fields
+  wire [ 6:0] cmd_opcode_fn = cmd_msg[6:0];
+  wire [ 2:0] cmd_vd        = cmd_msg[9:7];
+  wire [ 2:0] cmd_vs1       = cmd_msg[12:10];
+  wire [ 2:0] cmd_vs2       = cmd_msg[15:13];
+  wire [31:0] cmd_scalar    = cmd_msg[47:16];
+  wire [31:0] cmd_base_addr = cmd_msg[79:48];
+  wire [31:0] cmd_stride    = cmd_msg[111:80];
+  wire [ 4:0] cmd_rd_scalar = cmd_msg[116:112];
+  wire [ 1:0] cmd_category  = cmd_msg[118:117];
 
-  // cmd1 (head)
-  wire [ 6:0] cmd1_opcode_fn = cmd_msg[6:0];
-  wire [ 2:0] cmd1_vd        = cmd_msg[9:7];
-  wire [ 2:0] cmd1_vs1       = cmd_msg[12:10];
-  wire [ 2:0] cmd1_vs2       = cmd_msg[15:13];
-  wire [31:0] cmd1_scalar    = cmd_msg[47:16];
-  wire [31:0] cmd1_base_addr = cmd_msg[79:48];
-  wire [31:0] cmd1_stride    = cmd_msg[111:80];
-  wire [ 4:0] cmd1_rd_scalar = cmd_msg[116:112];
-  wire [ 1:0] cmd1_category  = cmd_msg[118:117];
-  wire        cmd1_is_cmp    = cmd1_opcode_fn[4];
-  wire        cmd1_is_reduce = cmd1_opcode_fn[5];
-
-  // cmd2 (second entry, peeked)
-  wire [ 6:0] cmd2_opcode_fn = cmd_msg_2[6:0];
-  wire [ 2:0] cmd2_vd        = cmd_msg_2[9:7];
-  wire [ 2:0] cmd2_vs1       = cmd_msg_2[12:10];
-  wire [ 2:0] cmd2_vs2       = cmd_msg_2[15:13];
-  wire [31:0] cmd2_scalar    = cmd_msg_2[47:16];
-  wire [ 1:0] cmd2_category  = cmd_msg_2[118:117];
-  wire        cmd2_is_cmp    = cmd2_opcode_fn[4];
-  wire        cmd2_is_reduce = cmd2_opcode_fn[5];
-
-  //----------------------------------------------------------------------
-  // States
-  //----------------------------------------------------------------------
-
-  localparam S_IDLE       = 4'd0;
-  localparam S_EXEC       = 4'd1;
-  localparam S_LOAD       = 4'd2;
-  localparam S_LWAIT      = 4'd3;
-  localparam S_STORE      = 4'd4;
-  localparam S_REDUCE     = 4'd5;
-  localparam S_EXEC_CHAIN = 4'd6;
-
+  // consts
+  localparam S_IDLE = 3'd0, S_EXEC = 3'd1, S_LOAD = 3'd2, S_LWAIT = 3'd3;
+  localparam S_STORE = 3'd4, S_REDUCE = 3'd5;
   localparam CAT_VV = 2'd0, CAT_VS = 2'd1, CAT_MEM = 2'd2, CAT_CFG = 2'd3;
 
   reg [3:0] state;
@@ -119,6 +84,7 @@ module riscv_VecCtrl
   // Latched producer (cmd1) fields
   //----------------------------------------------------------------------
 
+  // latched cmd
   reg [ 2:0] lat_vd, lat_vs1, lat_vs2;
   reg [31:0] lat_scalar, lat_base_addr, lat_stride;
   reg [ 4:0] lat_rd_scalar, lat_alu_fn;
@@ -181,20 +147,8 @@ module riscv_VecCtrl
   wire [2:0] detect_cons_vsnf =
        detect_forward_in0 ? cmd2_vs2 : cmd2_vs1;
 
-  //----------------------------------------------------------------------
-  // Queue handshake
-  //----------------------------------------------------------------------
-
-  assign cmd_rdy   = (state == S_IDLE) && cmd_val;
-  assign cmd_rdy_2 = (state == S_IDLE) && cmd_val && chain_possible;
-  assign vec_idle  = (state == S_IDLE) && !cmd_val;
-
-  //----------------------------------------------------------------------
-  // Combinational output logic
-  //----------------------------------------------------------------------
-
   always @(*) begin
-    // Producer defaults
+    // defaults
     vrf_wen = 1'b0;
     mask_wen = 1'b0;
     mask_clear = 1'b0;
@@ -227,14 +181,14 @@ module riscv_VecCtrl
 
     case (state)
       S_IDLE: begin
-        if (cmd_val && cmd1_category == CAT_CFG) begin
-          if (cmd1_opcode_fn[3:0] == 4'd0) begin // SETVL
+        if (cmd_val && cmd_category == CAT_CFG) begin
+          if (cmd_opcode_fn[3:0] == 4'd0) begin // setvl
             reduce_val = 1'b1;
-            reduce_rd = cmd1_rd_scalar;
-            reduce_result = (cmd1_scalar[5:0] > 6'd32) ? 32'd32 :
-                            {26'd0, cmd1_scalar[5:0]};
+            reduce_rd = cmd_rd_scalar;
+            // clamp to VLMAX=32
+            reduce_result = (cmd_scalar > 32'd32) ? 32'd32 : {26'd0, cmd_scalar[5:0]};
           end
-          if (cmd1_opcode_fn[3:0] == 4'd1) // CVM
+          if (cmd_opcode_fn[3:0] == 4'd1) // cvm
             mask_clear = 1'b1;
         end
       end
@@ -280,30 +234,22 @@ module riscv_VecCtrl
       S_REDUCE: begin
         vs1_addr = lat_vs1;
         if (elem_count + 1 >= vl_reg) begin
+          // publish *final* acc val combo. the registered update `reduce_acc <= reduce_acc + vs1_rdata` fires next clk edge 
+          // but scalar regfile wr via reduce_val/result fires **this** cycle so we have to fold in the last elem here
           reduce_val = 1'b1;
-          reduce_result = reduce_acc;
+          case (lat_sub_opcode[1:0])
+            2'd0:    reduce_result = reduce_acc + vs1_rdata;
+            2'd1:    reduce_result = reduce_acc & vs1_rdata;
+            2'd2:    reduce_result = reduce_acc | vs1_rdata;
+            default: reduce_result = reduce_acc;
+          endcase
           reduce_rd = lat_rd_scalar;
         end
       end
     endcase
   end
 
-  //----------------------------------------------------------------------
-  // Sequential state
-  //----------------------------------------------------------------------
-
-  // Helper: decode an arithmetic command's alu_fn
-  // (consumer can never be a comparison in chain mode, so simpler)
-  function [4:0] decode_alu_fn;
-    input [6:0] opcode_fn;
-    begin
-      if (opcode_fn[4])
-        decode_alu_fn = 5'd11 + {1'b0, opcode_fn[3:0]};
-      else
-        decode_alu_fn = {1'b0, opcode_fn[3:0]};
-    end
-  endfunction
-
+  // registered state transitions
   always @(posedge clk) begin
     if (reset) begin
       state <= S_IDLE;
@@ -316,51 +262,38 @@ module riscv_VecCtrl
       lat_cons_use_scalar  <= 1'b0;
     end
     else begin
+
       case (state)
         S_IDLE: begin
           if (cmd_val) begin
-            // Latch producer
-            lat_vd <= cmd1_vd;
-            lat_vs1 <= cmd1_vs1;
-            lat_vs2 <= cmd1_vs2;
-            lat_scalar <= cmd1_scalar;
-            lat_base_addr <= cmd1_base_addr;
-            lat_stride <= cmd1_stride;
-            lat_rd_scalar <= cmd1_rd_scalar;
-            lat_category <= cmd1_category;
-            lat_sub_opcode <= cmd1_opcode_fn[3:0];
-            lat_is_cmp <= cmd1_is_cmp;
-            lat_is_reduce <= cmd1_is_reduce;
-            lat_use_scalar <= (cmd1_category == CAT_VS);
-            lat_alu_fn <= decode_alu_fn(cmd1_opcode_fn);
+            // latch cmd
+            lat_vd <= cmd_vd;
+            lat_vs1 <= cmd_vs1;
+            lat_vs2 <= cmd_vs2;
+            lat_scalar <= cmd_scalar;
+            lat_base_addr <= cmd_base_addr;
+            lat_stride <= cmd_stride;
+            lat_rd_scalar <= cmd_rd_scalar;
+            lat_category <= cmd_category;
+            lat_sub_opcode <= cmd_opcode_fn[3:0];
+            lat_is_cmp <= cmd_opcode_fn[4];
+            lat_is_reduce <= cmd_opcode_fn[5];
+            lat_use_scalar <= (cmd_category == CAT_VS);
             elem_count <= 0;
-            mem_addr <= cmd1_base_addr;
+            mem_addr <= cmd_base_addr;
 
-            // Maybe latch consumer for chaining
-            if (chain_possible) begin
-              lat_cons_vd          <= cmd2_vd;
-              lat_cons_vs1         <= cmd2_vs1;
-              lat_cons_vs2         <= cmd2_vs2;
-              lat_cons_vsnf        <= detect_cons_vsnf;
-              lat_cons_scalar      <= cmd2_scalar;
-              lat_cons_alu_fn      <= decode_alu_fn(cmd2_opcode_fn);
-              lat_cons_use_scalar  <= (cmd2_category == CAT_VS);
-              lat_cons_forward_in0 <= detect_forward_in0;
-              lat_cons_forward_in1 <= detect_forward_in1;
-              chain_pending        <= 1'b1;
-              state                <= (vl_reg == 0) ? S_IDLE : S_EXEC_CHAIN;
-            end
-            else begin
-              chain_pending <= 1'b0;
-              // Plain (non-chained) dispatch — original logic
-              case (cmd1_category)
-                CAT_VV: begin
-                  if (cmd1_is_reduce)
-                    state <= (vl_reg == 0) ? S_IDLE : S_REDUCE;
-                  else
-                    state <= (vl_reg == 0) ? S_IDLE : S_EXEC;
-                end
-                CAT_VS:
+            // alu func
+            if (cmd_opcode_fn[4])
+              lat_alu_fn <= 5'd11 + {1'b0, cmd_opcode_fn[3:0]};
+            else
+              lat_alu_fn <= {1'b0, cmd_opcode_fn[3:0]};
+
+            // transition
+            case (cmd_category)
+              CAT_VV: begin
+                if (cmd_opcode_fn[5])
+                  state <= (vl_reg == 0) ? S_IDLE : S_REDUCE;
+                else
                   state <= (vl_reg == 0) ? S_IDLE : S_EXEC;
                 CAT_MEM: begin
                   if (vl_reg == 0)
@@ -375,16 +308,27 @@ module riscv_VecCtrl
                     vl_reg <= (cmd1_scalar[5:0] > 6'd32) ? 6'd32 :
                               cmd1_scalar[5:0];
                   state <= S_IDLE;
-                end
-              endcase
-
-              // Reduction accumulator init
-              if (cmd1_is_reduce) begin
-                if (cmd1_opcode_fn[1:0] == 2'd1)
-                  reduce_acc <= 32'hFFFFFFFF;
+                else if (cmd_opcode_fn[0] == 1'b0) // vlw or vlws (funct7 bit 0 = 0)
+                  state <= S_LOAD;
                 else
-                  reduce_acc <= 32'd0;
+                  state <= S_STORE;
               end
+              CAT_CFG: begin
+                // handle now, stay in IDLE
+                if (cmd_opcode_fn[3:0] == 4'd0) begin // setvl
+                  vl_reg <= (cmd_scalar > 32'd32) ? 6'd32 : cmd_scalar[5:0];
+                end
+                // cvm handled combo above
+                state <= S_IDLE;
+              end
+            endcase
+
+            // reduction acc init
+            if (cmd_opcode_fn[5]) begin
+              if (cmd_opcode_fn[1:0] == 2'd1)
+                reduce_acc <= 32'hFFFFFFFF;
+              else
+                reduce_acc <= 32'd0;
             end
           end
         end
@@ -437,6 +381,7 @@ module riscv_VecCtrl
         end
 
         S_REDUCE: begin
+          // acc
           case (lat_sub_opcode[1:0])
             2'd0: reduce_acc <= reduce_acc + vs1_rdata;
             2'd1: reduce_acc <= reduce_acc & vs1_rdata;
