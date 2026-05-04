@@ -90,6 +90,9 @@ module riscv_VecDpath
     end
   end
 
+  // Suppress unused warning when not chaining
+  wire _unused_chain = chain_active;
+
 endmodule
 
 `endif

@@ -6,12 +6,19 @@ module riscv_VecCtrl
   input         clk,
   input         reset,
 
+  // Head-of-queue command interface
   input         cmd_val,
   output        cmd_rdy,
   input  [118:0] cmd_msg,
 
+  // Second-entry peek (for chaining)
+  input         cmd_val_2,
+  input  [118:0] cmd_msg_2,
+  output        cmd_rdy_2,
+
   output        vec_idle,
 
+  // Producer datapath signals
   output reg [ 4:0] vec_alu_fn,
   output reg [ 2:0] vd_addr,
   output reg [ 2:0] vs1_addr,
@@ -24,6 +31,18 @@ module riscv_VecCtrl
   output reg        mask_clear,
   input      [31:0] mask_reg,
 
+  // Consumer datapath signals (chain mode)
+  output reg        chain_active,
+  output reg [ 4:0] cons_alu_fn,
+  output reg [ 2:0] cons_vd_addr,
+  output reg [ 2:0] cons_vsnf_addr,
+  output reg        cons_vrf_wen,
+  output reg        cons_use_scalar,
+  output reg [31:0] cons_scalar_val,
+  output reg        cons_forward_in0,
+  output reg        cons_forward_in1,
+
+  // Memory interface
   output reg        vec_memreq_val,
   input             vec_memreq_rdy,
   output reg        vec_memreq_rw,
@@ -32,6 +51,7 @@ module riscv_VecCtrl
   input      [31:0] vec_memresp_data,
   output reg        vec_memresp_rdy,
 
+  // Reduction result back to scalar core
   output reg        reduce_val,
   output reg [31:0] reduce_result,
   output reg [ 4:0] reduce_rd,
@@ -58,7 +78,11 @@ module riscv_VecCtrl
   localparam S_STORE = 3'd4, S_REDUCE = 3'd5;
   localparam CAT_VV = 2'd0, CAT_VS = 2'd1, CAT_MEM = 2'd2, CAT_CFG = 2'd3;
 
-  reg [2:0] state;
+  reg [3:0] state;
+
+  //----------------------------------------------------------------------
+  // Latched producer (cmd1) fields
+  //----------------------------------------------------------------------
 
   // latched cmd
   reg [ 2:0] lat_vd, lat_vs1, lat_vs2;
@@ -68,12 +92,60 @@ module riscv_VecCtrl
   reg [ 3:0] lat_sub_opcode;
   reg        lat_is_cmp, lat_is_reduce, lat_use_scalar;
 
+  // Latched consumer (cmd2) fields, valid when chain_pending=1
+  reg [ 2:0] lat_cons_vd, lat_cons_vs1, lat_cons_vs2, lat_cons_vsnf;
+  reg [31:0] lat_cons_scalar;
+  reg [ 4:0] lat_cons_alu_fn;
+  reg        lat_cons_use_scalar;
+  reg        lat_cons_forward_in0;
+  reg        lat_cons_forward_in1;
+  reg        chain_pending;  // set when latching; cleared at end of S_EXEC_CHAIN
+
   reg [ 5:0] elem_count;
   reg [31:0] mem_addr;
   reg [31:0] reduce_acc;
 
-  assign cmd_rdy = (state == S_IDLE) && cmd_val;
-  assign vec_idle = (state == S_IDLE) && !cmd_val;
+  //----------------------------------------------------------------------
+  // Chain-detection (combinational)
+  //----------------------------------------------------------------------
+  // Both cmd1 and cmd2 must be plain arithmetic (CAT_VV or CAT_VS,
+  // non-comparison, non-reduction). We require cmd2 to RAW-depend on
+  // cmd1's destination, and forbid WAW/WAR for safety.
+
+  wire cmd1_chainable_prod =
+       cmd_val &&
+       (cmd1_category == CAT_VV || cmd1_category == CAT_VS) &&
+       !cmd1_is_cmp && !cmd1_is_reduce;
+
+  wire cmd2_chainable_cons =
+       cmd_val_2 &&
+       (cmd2_category == CAT_VV || cmd2_category == CAT_VS) &&
+       !cmd2_is_cmp && !cmd2_is_reduce;
+
+  // RAW: cmd2 reads cmd1's destination
+  wire cmd2_reads_cmd1_vd_via_vs1 = (cmd2_vs1 == cmd1_vd);
+  wire cmd2_reads_cmd1_vd_via_vs2 = (cmd2_category == CAT_VV) &&
+                                    (cmd2_vs2 == cmd1_vd);
+  wire raw_dep = cmd2_reads_cmd1_vd_via_vs1 || cmd2_reads_cmd1_vd_via_vs2;
+
+  // WAW: cmd2 writes the same register cmd1 writes
+  wire waw_haz = (cmd2_vd == cmd1_vd);
+
+  // WAR: cmd2 writes a register cmd1 reads. Producer reads its vs1
+  // every cycle; vs2 only if CAT_VV.
+  wire war_haz = (cmd2_vd == cmd1_vs1) ||
+                 ((cmd1_category == CAT_VV) && (cmd2_vd == cmd1_vs2));
+
+  wire chain_possible = cmd1_chainable_prod &&
+                        cmd2_chainable_cons &&
+                        raw_dep && !waw_haz && !war_haz &&
+                        (vl_reg != 0);
+
+  // Forwarding flags computed at detection time
+  wire detect_forward_in0 = cmd2_reads_cmd1_vd_via_vs1;
+  wire detect_forward_in1 = cmd2_reads_cmd1_vd_via_vs2;
+  wire [2:0] detect_cons_vsnf =
+       detect_forward_in0 ? cmd2_vs2 : cmd2_vs1;
 
   always @(*) begin
     // defaults
@@ -96,6 +168,17 @@ module riscv_VecCtrl
     use_scalar = lat_use_scalar;
     scalar_val = lat_scalar;
 
+    // Consumer defaults (off when not chaining)
+    chain_active     = 1'b0;
+    cons_alu_fn      = lat_cons_alu_fn;
+    cons_vd_addr     = lat_cons_vd;
+    cons_vsnf_addr   = lat_cons_vsnf;
+    cons_vrf_wen     = 1'b0;
+    cons_use_scalar  = lat_cons_use_scalar;
+    cons_scalar_val  = lat_cons_scalar;
+    cons_forward_in0 = lat_cons_forward_in0;
+    cons_forward_in1 = lat_cons_forward_in1;
+
     case (state)
       S_IDLE: begin
         if (cmd_val && cmd_category == CAT_CFG) begin
@@ -111,13 +194,6 @@ module riscv_VecCtrl
       end
 
       S_EXEC: begin
-        elem_idx = elem_count[4:0];
-        vd_addr = lat_vd;
-        vs1_addr = lat_vs1;
-        vs2_addr = lat_vs2;
-        vec_alu_fn = lat_alu_fn;
-        use_scalar = lat_use_scalar;
-        scalar_val = lat_scalar;
         if (elem_count < vl_reg) begin
           if (mask_reg[elem_count[4:0]]) begin
             if (lat_is_cmp)
@@ -128,17 +204,23 @@ module riscv_VecCtrl
         end
       end
 
+      S_EXEC_CHAIN: begin
+        chain_active = 1'b1;
+        if (elem_count < vl_reg) begin
+          if (mask_reg[elem_count[4:0]]) begin
+            // Producer is plain arithmetic in chain mode (cmp ruled out)
+            vrf_wen = 1'b1;
+            cons_vrf_wen = 1'b1;
+          end
+        end
+      end
+
       S_LOAD: begin
         vec_memreq_val = 1'b1;
         vec_memreq_rw = 1'b0;
-        vec_memreq_addr = mem_addr;
-        elem_idx = elem_count[4:0];
-        vd_addr = lat_vd;
       end
 
       S_LWAIT: begin
-        elem_idx = elem_count[4:0];
-        vd_addr = lat_vd;
         if (vec_memresp_val && mask_reg[elem_count[4:0]])
           vrf_wen = 1'b1;
       end
@@ -146,13 +228,10 @@ module riscv_VecCtrl
       S_STORE: begin
         vec_memreq_val = 1'b1;
         vec_memreq_rw = 1'b1;
-        vec_memreq_addr = mem_addr;
-        elem_idx = elem_count[4:0];
         vs1_addr = lat_vs1;
       end
 
       S_REDUCE: begin
-        elem_idx = elem_count[4:0];
         vs1_addr = lat_vs1;
         if (elem_count + 1 >= vl_reg) begin
           // publish *final* acc val combo. the registered update `reduce_acc <= reduce_acc + vs1_rdata` fires next clk edge 
@@ -177,6 +256,10 @@ module riscv_VecCtrl
       vl_reg <= 6'd4;
       elem_count <= 0;
       reduce_acc <= 0;
+      chain_pending <= 1'b0;
+      lat_cons_forward_in0 <= 1'b0;
+      lat_cons_forward_in1 <= 1'b0;
+      lat_cons_use_scalar  <= 1'b0;
     end
     else begin
 
@@ -212,11 +295,18 @@ module riscv_VecCtrl
                   state <= (vl_reg == 0) ? S_IDLE : S_REDUCE;
                 else
                   state <= (vl_reg == 0) ? S_IDLE : S_EXEC;
-              end
-              CAT_VS:
-                state <= (vl_reg == 0) ? S_IDLE : S_EXEC;
-              CAT_MEM: begin
-                if (vl_reg == 0)
+                CAT_MEM: begin
+                  if (vl_reg == 0)
+                    state <= S_IDLE;
+                  else if (cmd1_opcode_fn[0] == 1'b0)
+                    state <= S_LOAD;
+                  else
+                    state <= S_STORE;
+                end
+                CAT_CFG: begin
+                  if (cmd1_opcode_fn[3:0] == 4'd0)
+                    vl_reg <= (cmd1_scalar[5:0] > 6'd32) ? 6'd32 :
+                              cmd1_scalar[5:0];
                   state <= S_IDLE;
                 else if (cmd_opcode_fn[0] == 1'b0) // vlw or vlws (funct7 bit 0 = 0)
                   state <= S_LOAD;
@@ -248,6 +338,15 @@ module riscv_VecCtrl
             elem_count <= elem_count + 1;
           if (elem_count + 1 >= vl_reg)
             state <= S_IDLE;
+        end
+
+        S_EXEC_CHAIN: begin
+          if (elem_count < vl_reg)
+            elem_count <= elem_count + 1;
+          if (elem_count + 1 >= vl_reg) begin
+            state <= S_IDLE;
+            chain_pending <= 1'b0;
+          end
         end
 
         S_LOAD: begin

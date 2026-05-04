@@ -34,12 +34,14 @@ module riscv_VecRegfile
   // combo reads
   assign rdata0 = registers[raddr0][relement0];
   assign rdata1 = registers[raddr1][relement1];
+  assign rdata2 = registers[raddr2][relement2];
 
   // wr on posedge if wen
   always @(posedge clk) begin
-    if (wen) begin
-      registers[waddr][welement] <= wdata;
-    end
+    if (wen0)
+      registers[waddr0][welement0] <= wdata0;
+    if (wen1)
+      registers[waddr1][welement1] <= wdata1;
   end
 
 endmodule

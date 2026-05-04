@@ -40,6 +40,10 @@ module riscv_VecCmdQueue
   // ptr cmp, msb tracks wrap
   wire [PTR_SZ-1:0] head_idx = head[PTR_SZ-1:0];
   wire [PTR_SZ-1:0] tail_idx = tail[PTR_SZ-1:0];
+  wire [PTR_SZ-1:0] head_idx_p1 = head_idx + 1'b1;
+
+  // Occupancy: tail - head, in modular arithmetic with the extra MSB
+  wire [PTR_SZ:0] occupancy = tail - head;
 
   assign empty = (head == tail);
   assign full = (head_idx == tail_idx) && (head[PTR_SZ] != tail[PTR_SZ]);
@@ -47,6 +51,10 @@ module riscv_VecCmdQueue
   assign enq_rdy = !full;
   assign deq_val = !empty;
   assign deq_msg = entries[head_idx];
+
+  // Second-entry peek: only valid if at least 2 entries occupied
+  assign deq_val_2 = (occupancy >= 3'd2);
+  assign deq_msg_2 = entries[head_idx_p1];
 
   always @(posedge clk) begin
     if (reset) begin
@@ -59,7 +67,10 @@ module riscv_VecCmdQueue
         tail <= tail + 1;
       end
       if (deq_val && deq_rdy) begin
-        head <= head + 1;
+        if (deq_rdy_2 && deq_val_2)
+          head <= head + 2;
+        else
+          head <= head + 1;
       end
     end
   end
