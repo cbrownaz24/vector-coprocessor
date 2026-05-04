@@ -82,4 +82,7 @@ riscv_srcs += \
   riscv-bmark-chain-depth-3.S \
   riscv-bmark-chain-depth-2.S \
   riscv-bmark-chain-depth-1.S \
-
+  riscv-bmark-dotprod-scalar.S \
+  riscv-bmark-dotprod-vector.S \
+  riscv-bmark-vvmul-scalar.S \
+  riscv-bmark-vvmul-vector.S \

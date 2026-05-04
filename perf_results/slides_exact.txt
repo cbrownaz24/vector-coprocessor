@@ -1,0 +1,434 @@
+================================================================================
+  EXACT SLIDE CONTENT — Vector Coprocessor
+  ECE 475 | Max Machado & Connor Brown | Spring 2026
+================================================================================
+  Format: every word that appears on the slide is written out.
+  [GRAPHIC: ...] lines are placement notes, not slide text.
+================================================================================
+
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║  SLIDE 1 — Overview                                                          ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+TITLE:
+    Decoupled Vector Coprocessor for RISC-V
+
+SUBTITLE:
+    ECE 475  |  Max Machado & Connor Brown  |  Spring 2026
+
+──────────────────────────────────────────────────────────────────────────────
+
+BODY (left column — "The problem"):
+
+    Scalar loops on data-parallel code waste cycles
+
+    • Loop overhead: branch + pointer increments every iteration
+    • Multi-cycle MUL stall: 32 cycles per multiply on scalar core
+    • All work serialized — no use of data-level parallelism
+
+BODY (right column — "Our solution"):
+
+    A decoupled vector coprocessor
+
+    • Scalar core dispatches vector commands into a 4-entry queue
+    • Vector unit executes independently — scalar keeps running
+    • Scalar only stalls on VFENCE (explicit sync) or full queue
+    • Mirrors real designs: Cray-1, Hwacha (UC Berkeley)
+
+CALLOUT BOX (bottom center, large text):
+
+    Up to 9× speedup on dense linear algebra —
+    outperforms out-of-order superscalar
+
+──────────────────────────────────────────────────────────────────────────────
+
+[GRAPHIC: perf_results/slide_s1_code_compare.png
+ — left half of slide body
+ — shows scalar DAXPY loop vs vectorized side by side with cycle counts]
+
+[GRAPHIC: perf_results/slide_s1_timeline.png
+ — bottom of slide or second visual
+ — shows decoupled Gantt timeline: scalar dispatches while vector computes]
+
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║  SLIDE 2 — Our Contribution                                                  ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+TITLE:
+    33-Instruction Vector ISA Extension
+
+SUBTITLE:
+    Built on RISC-V's reserved custom-0 opcode (0x0B) — zero encoding conflicts
+
+──────────────────────────────────────────────────────────────────────────────
+
+BODY (left column — instruction format):
+
+    Instruction Encoding
+
+    • 32-bit format reuses standard RISC-V fields
+    • funct3  →  category (6 groups)
+    • funct7  →  operation within category
+    • vd / vs1 / vs2  →  3-bit vector register address (v0–v7)
+    • rs2 carries scalar operand for vector-scalar instructions
+
+BODY (right column — categories table):
+
+    6 Instruction Categories
+
+    VV_ARITH   funct3=000   11 ops   vvadd vvsub vvmul vvdiv vvrem vvand vvor vvxor vvsll vvsrl vvsra
+    VS_ARITH   funct3=001    5 ops   vsadd vssub vsmul vsdiv vsrem
+    VMEM       funct3=010    4 ops   vlw vsw vlws vsws
+    VCONFIG    funct3=011    3 ops   setvl cvm vfence
+    VCOMP      funct3=100    6 ops   vseq vslt vsle vsgt vsge vsne
+    VREDUCE    funct3=101    3 ops   vredsum vredand vredor
+
+    Total: 33 vector instructions
+
+CALLOUT BOXES (one each, alongside categories):
+
+    Mask register  — 32 bits, one per element.
+    VCOMP writes it; CVM clears it.
+    Predicated write-back on all ops.
+
+    SETVL  — sets VL = min(requested, 32).
+    Enables strip-mining for N > VLMAX.
+
+    VREDSUM  — reduces a vector register to
+    a single scalar, written back to x[rd].
+
+──────────────────────────────────────────────────────────────────────────────
+
+[GRAPHIC: perf_results/slide_s2_encoding.png
+ — upper half, full width
+ — 32-bit instruction word with color-coded fields + two worked examples]
+
+[GRAPHIC: perf_results/slide_s2_categories.png
+ — lower half or right column
+ — horizontal bar chart of instruction counts + mnemonic list]
+
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║  SLIDE 3 — Architecture                                                      ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+TITLE:
+    Microarchitecture
+
+──────────────────────────────────────────────────────────────────────────────
+
+BODY (left column — key parameters):
+
+    Scalar Core  (riscvbyp, unmodified)
+    • 5-stage pipeline: Fetch  Decode  Execute  Memory  Writeback
+    • Decode detects custom-0 → packs 119-bit command message
+    • Stall conditions:  VFENCE (until vec_idle)  |  queue full
+
+    Command Queue
+    • 4-entry FIFO,  119 bits per entry
+    • Fields: opcode, vd, vs1, vs2, scalar value,
+      base addr, stride, rd_scalar, category
+    • Decouples scalar dispatch from vector latency
+
+    Vector Register File
+    • 8 registers  ×  32 elements  ×  32 bits  =  1 KB total
+    • 3-bit addressing  (compact vs. RISC-V V's 32 regs)
+
+    4-Lane SIMD ALU
+    • 4 parallel 32-bit combinational ALUs
+    • All ops: add sub mul div rem  and or xor  sll srl sra  comparisons
+
+    Mask Register
+    • 32 bits, one per element
+    • Set by VCOMP instructions  |  cleared by CVM
+    • Mask bit = 0  →  element write-back suppressed
+
+BODY (right column — FSM summary):
+
+    VecCtrl FSM  —  6 States
+
+    IDLE    awaiting command from queue
+    EXEC    iterate elem 0…VL-1, ALU write-back each cycle
+    LOAD    issue one memory read per element
+    LWAIT   wait for memory response, write to vector reg
+    STORE   issue one memory write per element
+    REDUCE  accumulate elements into scalar result
+
+    Memory Interface
+    • Vector unit shares the data port with scalar core
+    • Arbitrated via  !vec_idle
+    • Scalar memory stage stalls during vector memory ops
+    • VL sequential word requests per VLW / VSW
+
+──────────────────────────────────────────────────────────────────────────────
+
+[GRAPHIC: perf_results/slide_s3_block_diagram.png
+ — right half or full-width upper portion
+ — full architecture diagram: scalar → queue → vector unit ↔ shared memory]
+
+[GRAPHIC: perf_results/slide_s3_fsm.png
+ — lower right or second slide in this section
+ — VecCtrl FSM with all 6 states, transition conditions, color-coded by type]
+
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║  SLIDE 4 — Testing                                                           ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+TITLE:
+    44 / 44 Tests Pass
+
+SUBTITLE:
+    Full RV32IM ISA correctness  +  comprehensive vector coverage  +  zero scalar regressions
+
+──────────────────────────────────────────────────────────────────────────────
+
+BODY (left column — test suite):
+
+    ISA Test Suite
+
+    43 scalar tests   every RV32IM instruction unchanged
+    1  vector test    13 sub-tests in riscv-vec.S
+
+    Vector test coverage:
+    • SETVL, VLW, VSW, VFENCE — basic load/store/sync
+    • VVADD, VVSUB, VVMUL — vector-vector arithmetic
+    • VSADD, VSMUL, VSSUB — vector-scalar arithmetic
+    • VVAND, VVOR, VVXOR — bitwise operations
+    • Negative numbers — signed arithmetic correctness
+    • Decoupled queuing — multiple ops without VFENCE
+    • VL = 0 and VL = 1 — boundary edge cases
+
+BODY (right column — bugs fixed):
+
+    Key Bugs Found and Fixed
+
+    1   VSW address routing
+        VSW uses rs2 for base address, not rs1.
+        Required special-case command packing in Core.v.
+
+    2   Registered vs combinational VecCtrl outputs
+        Registered elem_idx caused a 1-cycle read delay
+        → wrong element data. Fixed by making all datapath
+        control signals combinational.
+
+    3   Memory arbitration
+        Gating on vec_memreq_val failed: signal drops during
+        LWAIT state. Fixed by using !vec_idle for arbitration.
+
+    4   SWAIT state eliminated
+        Zero-latency memory doesn't need a store wait state.
+        Stores now complete at one element per cycle.
+
+CALLOUT (bottom):
+
+    4 C benchmarks (ubmark-vvadd, bin-search, cmplx-mult, masked-filter)
+    all PASS  —  zero performance regression on scalar code
+
+──────────────────────────────────────────────────────────────────────────────
+
+[GRAPHIC: perf_results/05_ubmark_baseline.png
+ — lower left quadrant
+ — bar chart: all 4 C ubmarks pass, shows cycle counts and IPC]
+
+[GRAPHIC: bench/plots/fig10_ubmarks.png
+ — lower right quadrant  (or swap in place of 05_ubmark_baseline.png)
+ — same ubmarks across all 5 processor variants — confirms parity]
+
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║  SLIDE 5 — Benchmark Evaluation                                              ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+TITLE:
+    Convoy & Chime Analysis
+
+SUBTITLE:
+    Breaking down where vector cycles go
+
+──────────────────────────────────────────────────────────────────────────────
+
+BODY (left column — definitions + breakdown):
+
+    Definitions
+
+    Convoy   a group of vector instructions with no RAW dependency
+             that can issue together
+             → this design: 1 instruction per convoy (single FU)
+
+    Chime    one convoy's execution time  =  VL element cycles
+             VL = 32  →  32 cycles per chime
+
+    Benchmark Breakdown
+
+                   VL   Convoys   Chimes   Theory   Actual   Overhead
+    VVADD-32       32      4         4      128 cy    242 cy    47%
+    DAXPY-32       32      5         5      160 cy    274 cy    42%
+    SAXPY-16       16      3         3       48 cy    112 cy    57%
+    LINPACK-16×16  32     ~9        ~9      288 cy   1296 cy    78%*
+
+    * LINPACK overhead includes scalar loop between strip-mined rows
+
+    Overhead sources:
+    • Scalar setup instructions (la, li, SETVL, CVM, VFENCE)
+    • VFENCE stall waiting for vector unit to drain
+    • Verification and write-back code
+
+BODY (right column — scaling):
+
+    DAXPY Scaling  (N = 16 → 256)
+
+    N       riscvbyp   riscvvec   Speedup   chained   Speedup
+    16        756 cy     171 cy    4.4×       154 cy    4.9×
+    32       1476 cy     283 cy    5.2×       250 cy    5.9×
+    64       2916 cy     524 cy    5.6×       458 cy    6.4×
+    128      5796 cy    1006 cy    5.8×       874 cy    6.6×
+    256     11556 cy    1970 cy    5.9×      1706 cy    6.8×
+
+    Speedup grows with N as overhead amortizes over more elements.
+    Chaining (VSMUL → VVADD overlap) adds ~15% across all sizes.
+
+──────────────────────────────────────────────────────────────────────────────
+
+[GRAPHIC: perf_results/03_convoy_chime.png
+ — upper right
+ — convoy timeline for VVADD / DAXPY / SAXPY, mem vs arith color-coded]
+
+[GRAPHIC: perf_results/04_cycle_budget.png
+ — lower right
+ — stacked bars: chime cycles vs scalar setup overhead per benchmark]
+
+[GRAPHIC: bench/plots/fig4_linpack_scaling.png
+ — could replace 04 as the "punchline" figure on this slide
+ — LINPACK cycles vs matrix size across all processors]
+
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║  SLIDE 6 — Performance Comparison                                            ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+TITLE:
+    Vector Beats Out-of-Order — by 3×
+
+SUBTITLE:
+    Five processor variants, four kernels, same memory model
+
+──────────────────────────────────────────────────────────────────────────────
+
+BODY (left column — results table):
+
+    Speedup over riscvbyp scalar baseline
+
+                    VVADD-32   SAXPY-16   DAXPY-32   LINPACK-16×16
+    riscvbyp          1.00×      1.00×      1.00×        1.00×
+    riscvlong         1.07×      3.02×      3.04×        3.10×
+    riscvooo          1.00×      2.84×      2.86×        3.09×
+    riscvvec          1.87×      6.60×      5.38×        9.04×
+    riscvvec-chained  1.87×      6.60×      6.12×        9.04×
+
+    Cycle counts  (DAXPY-32):
+
+    riscvbyp          1475 cycles   322 instructions
+    riscvlong          485 cycles   323 instructions
+    riscvooo           516 cycles   322 instructions
+    riscvvec           274 cycles    44 instructions
+    riscvvec-chained   241 cycles    44 instructions
+
+BODY (right column — analysis):
+
+    Why vector beats OOO
+
+    • OOO exploits ILP within the loop body
+      (reorders iterations within the same loop structure)
+    • Vector eliminates the loop entirely
+      — 5 instructions replace 32 iterations of 9 instructions each
+      — Fundamentally different class of parallelism: DLP not ILP
+
+    Chaining benefit  (riscvvec → riscvvec-chained)
+
+    • DAXPY:   274 → 241 cycles  (+12%)
+               VSMUL result forwarded directly into VVADD
+    • LINPACK: no change — memory bandwidth is the bottleneck
+    • Benefit grows when dependent compute chains exist
+
+    Energy  (pedagogical 28nm CMOS model)
+
+    • Instruction-fetch + decode energy drops 5–10×
+      (far fewer instructions committed)
+    • Compute and memory energy roughly constant
+      (same arithmetic and memory operations performed)
+    • Net: vector reduces total energy ~3–4×
+    • EDP: vector is Pareto-dominant on all kernels
+
+CALLOUT BOX (large, bottom center):
+
+    riscvvec:  5.4× faster than scalar  ·  3× faster than out-of-order  ·  44 vs 322 instructions
+
+──────────────────────────────────────────────────────────────────────────────
+
+[GRAPHIC: bench/plots/fig2_speedup_over_baseline.png
+ — MUST-HAVE — right half of slide, large
+ — speedup bars for all 5 processors × 4 kernels, normalized to riscvbyp]
+
+[GRAPHIC: bench/plots/fig6_energy_breakdown.png
+ — lower left or second visual
+ — stacked energy: fetch/decode overhead collapses in vector mode]
+
+[OPTIONAL GRAPHIC: bench/plots/fig9_chain_depth.png
+ — shows chaining benefit diminishing — good "future work" motivator]
+
+
+================================================================================
+SPEAKER NOTES  (not on slides)
+================================================================================
+
+SLIDE 1:
+  The MUL stall is the key intuition pump. On riscvbyp, every scalar multiply
+  stalls the pipeline for 32 cycles while the iterative multiplier runs. DAXPY
+  does 32 multiplies — that's 1024 wasted cycles on stalls alone, before even
+  counting loop overhead. The vector ALU uses a combinational multiplier, so
+  MUL is one cycle. That single fact explains most of the DAXPY speedup.
+
+SLIDE 2:
+  We chose custom-0 (0x0B) specifically because RISC-V reserves it for
+  non-standard extensions. This means our binary is still a valid RV32 binary
+  — it will just trap on a processor that doesn't have our coprocessor.
+  The 3-bit vector register field (vd/vs1/vs2) is an intentional tradeoff:
+  8 registers instead of RISC-V V's 32, but the encoding stays compact and
+  the hardware cost is lower. More than sufficient for loop-body vectorization.
+
+SLIDE 3:
+  The key insight in the architecture is the command queue. Without it, the
+  scalar core would have to wait for each vector instruction to complete before
+  dispatching the next one. With a 4-entry queue, the scalar core fires off
+  all 5 DAXPY commands in 5 cycles and only stalls at the VFENCE. In a kernel
+  with no inter-iteration dependencies, you could pipeline multiple strip-mined
+  iterations with zero scalar stalls between them.
+
+SLIDE 4:
+  Bug #2 (combinational outputs) is worth dwelling on. The original VecCtrl
+  used registered outputs, which means elem_idx was one cycle late — the
+  datapath was reading element N+1 when it should have been reading element N.
+  All 32 elements would be off-by-one. The fix was straightforward (make
+  outputs combinational) but catching it required careful waveform analysis.
+
+SLIDE 5:
+  The overhead percentage (47–57% for small benchmarks) looks bad but is
+  expected — it's mostly fixed cost (SETVL, CVM, VFENCE, scalar setup).
+  At larger N it amortizes: DAXPY at N=256 spends 77% of cycles on actual
+  vector work. LINPACK at 16×16 looks worse (78% overhead) because it has
+  a scalar loop between strip-mined rows of the matrix — future work would
+  software-pipeline those rows.
+
+SLIDE 6:
+  The comparison against riscvooo is the most interesting result. Out-of-order
+  gets 2.86× on DAXPY because it can overlap MUL latency with loads — but it
+  still has to execute 322 instructions. Our vector processor only executes 44.
+  That instruction-count reduction is the source of the additional 2× margin.
+  On LINPACK (a more realistic kernel) the gap grows to 9× vs 3×. The energy
+  result follows directly: fewer instructions means less fetch, decode, and
+  register-file traffic — the parts of the chip that dominate dynamic power.
+
+================================================================================

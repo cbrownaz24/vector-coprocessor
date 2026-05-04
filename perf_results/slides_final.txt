@@ -1,0 +1,365 @@
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SLIDE 1  ·  Why a Vector Coprocessor?
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+TITLE
+  Why a Vector Coprocessor?
+
+SUBTITLE
+  Scalar loops leave most of the hardware idle
+
+────────────────────────────────────────────────────────────
+
+[GRAPHIC — full width, top 65% of slide]
+  perf_results/slide_s1_code_compare.png
+  (scalar DAXPY loop vs vectorized — let the code speak)
+
+────────────────────────────────────────────────────────────
+
+THREE CALLOUT BOXES  (bottom strip, equal thirds)
+
+  ① Loop overhead eliminated
+    Branch + pointer math + counter =
+    9 instructions × 32 iterations = 288 wasted dispatches
+
+  ② MUL stall eliminated
+    Scalar core stalls 32 cycles per multiply
+    Vector ALU is combinational — MUL takes 1 cycle
+
+  ③ Decoupled execution
+    Scalar dispatches 5 commands in 5 cycles
+    Vector runs them while scalar keeps going
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SLIDE 2  ·  VecUnit Internals
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+TITLE
+  VecUnit Internals
+
+────────────────────────────────────────────────────────────
+
+[GRAPHIC — right 55% of slide, full height]
+  perf_results/slide_s3_block_diagram.png
+
+────────────────────────────────────────────────────────────
+
+LEFT COLUMN  (specs — one line each)
+
+  Command Queue
+    4-entry FIFO  ·  119-bit entries
+    Scalar stalls only on VFENCE or when full
+
+  Vector Register File
+    8 registers × 32 elements × 32 bits  =  1 KB
+
+  4-Lane SIMD ALU
+    Combinational  ·  one result per lane per cycle
+    add  sub  mul  div  rem  and  or  xor  sll  srl  sra  cmp
+
+  Mask Register
+    32 bits, one per element
+    Predicated write-back — bit = 0 skips that element
+
+  VecCtrl FSM
+    6 states: IDLE  EXEC  LOAD  LWAIT  STORE  REDUCE
+
+  33 vector instructions across 6 categories
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SLIDE 3  ·  Chaining
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+TITLE
+  Cray-Style Vector Chaining
+
+SUBTITLE
+  Start the next instruction before the previous one finishes
+
+────────────────────────────────────────────────────────────
+
+[GRAPHIC — top 60% of slide, full width]
+  perf_results/slide_s3_chaining.png
+  (without chaining: VSMUL fully completes, then VVADD starts
+   with chaining: VVADD starts 1 cycle after VSMUL, consuming results as produced)
+
+────────────────────────────────────────────────────────────
+
+THREE COLUMNS  (bottom strip)
+
+  Hardware changes
+    2 ALU instances
+    3 regfile read ports
+    2 regfile write ports
+    Dual-issue VecCtrl
+
+  When chaining fires
+    Destination of instruction N is
+    a source of instruction N+1
+    (RAW dependency across vector ops)
+
+  Measured benefit  (DAXPY, VL = 32)
+    riscvvec          274 cycles
+    riscvvec-chained  241 cycles
+    Saving             33 cycles  (+12%)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SLIDE 4  ·  Testing Methodology
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+TITLE
+  Testing Methodology
+
+SUBTITLE
+  44 / 44 pass  ·  zero scalar regressions
+
+────────────────────────────────────────────────────────────
+
+[GRAPHIC — top 65% of slide, full width]
+  perf_results/slide_s4_testing.png
+  (coverage grid: 6 columns of test categories, each row is a passing test)
+
+────────────────────────────────────────────────────────────
+
+BUGS FOUND & FIXED  (bottom strip, 4 cards)
+
+  #1  VSW address routing
+      VSW uses rs2 not rs1 for base
+      → special-case in Core.v
+
+  #2  Registered VecCtrl outputs
+      1-cycle-late elem_idx → wrong element
+      → make all control signals combinational
+
+  #3  Memory arbitration
+      vec_memreq_val drops during LWAIT
+      → gate on  !vec_idle  instead
+
+  #4  SWAIT state removed
+      Zero-latency memory needs no store wait
+      → stores complete one element per cycle
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SLIDE 5  ·  Performance Benchmarking
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+TITLE
+  Performance Benchmarking
+
+SUBTITLE
+  6 kernels  ·  5 processor variants  ·  same memory model
+
+────────────────────────────────────────────────────────────
+
+[GRAPHIC — top 55% of slide, full width]
+  bench/plots/fig2_speedup_over_baseline.png
+  (speedup bars for all 5 processors × 6 kernels, normalized to riscvbyp)
+
+────────────────────────────────────────────────────────────
+
+[GRAPHIC — bottom 40% of slide, full width]
+  bench/plots/fig11_flops_per_cycle.png
+  (FLOPs/cycle bars: scalar vs vector for all 6 kernels)
+
+────────────────────────────────────────────────────────────
+
+NOTE  (speaker: walk through the table below if needed)
+
+  Cycle counts  (riscvbyp scalar  vs  riscvvec vector, N=32 unless noted)
+
+    Kernel          Scalar   Vector   Speedup   FLOPs   FLOPs/cy (vec)
+    ──────────────────────────────────────────────────────────────────
+    VVADD-32          452      242      1.87×      32       0.132
+    SAXPY-16          739      112      6.60×      16       0.143
+    DAXPY-32         1475      274      5.38×      64       0.234
+    LINPACK 16×16   11718     1296      9.04×     496       0.383
+    VVMUL-32         1508      242      6.23×      32       0.132
+    DotProd-32       1469      235      6.25×      63       0.268
+    ──────────────────────────────────────────────────────────────────
+
+  ISA tests (43 scalar + 3 vector)  —  avg cycle count across all cases
+    Scalar ISA tests:   361 cycles average  (range 23–1869)
+    Vector ISA tests:   246 cycles average  (riscv-vec=545, redsum=97, stride=96)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SLIDE 6  ·  Parametric Performance Testing
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+TITLE
+  Parametric Performance Testing
+
+SUBTITLE
+  Speedup grows with problem size  ·  queue depth is not the bottleneck
+
+────────────────────────────────────────────────────────────
+
+[GRAPHIC — top left quadrant]
+  bench/plots/fig4_linpack_scaling.png
+  LABEL:  "LINPACK  N×N  matrix-vector multiply"
+
+[GRAPHIC — top right quadrant]
+  bench/plots/fig3_daxpy_scaling.png
+  LABEL:  "DAXPY  N-element scaling"
+
+[GRAPHIC — bottom left quadrant]
+  bench/plots/fig8_queue_depth.png
+  LABEL:  "Queue depth sweep  (2 → 16 entries)"
+
+[GRAPHIC — bottom right quadrant]
+  bench/plots/fig9_chain_depth.png
+  LABEL:  "Dependent-instruction chain depth"
+
+────────────────────────────────────────────────────────────
+
+FOUR CALLOUT LABELS  (one caption under each graphic)
+
+  LINPACK scaling
+    4×4   →  4.8×   speedup
+    16×16 →  9.0×   speedup
+    32×32 → 10.1×   speedup
+    Gap widens as N grows
+
+  DAXPY scaling
+    N=16  →  4.4×
+    N=256 →  5.9×
+    Overhead amortizes over more elements
+
+  Queue depth
+    Depth 2–16: identical cycle counts
+    Bottleneck is vector FU throughput, not dispatch bandwidth
+    (linpack-pipelined also flat — VFENCE limits reuse)
+
+  Chain depth  (consecutive RAW VVADDs)
+    Depth 1–2: no savings (not enough queue fill)
+    Depth 3: saves 9 cycles (~8%)
+    Depth 5: saves 18 cycles (~13%)
+    Benefit compounds at deeper chains
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SLIDE 7  ·  Takeaways
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+TITLE
+  Takeaways
+
+────────────────────────────────────────────────────────────
+
+[GRAPHIC — right 45% of slide, full height]
+  bench/plots/fig7_edp.png
+  (energy-delay product — vector is Pareto-optimal on every kernel)
+
+────────────────────────────────────────────────────────────
+
+LEFT COLUMN  —  What we accomplished
+
+  ·  33-instruction vector ISA on RISC-V custom-0 opcode
+  ·  Decoupled coprocessor: 4-entry command queue, 119-bit entries
+  ·  8 × 32 × 32-bit vector register file (1 KB)
+  ·  4-lane combinational SIMD ALU with mask predication
+  ·  Cray-style instruction chaining variant (dual ALU, dual write port)
+  ·  44 / 44 tests pass  ·  zero scalar regressions
+  ·  Up to 9× speedup over scalar  ·  up to 9.1× lower EDP
+
+LEFT COLUMN  —  Limitations
+
+  ·  Single functional unit — no ALU-memory overlap within one VEC op
+  ·  VL fixed at 32 (no strip-mining support in this design)
+  ·  Chaining requires 2 ops in queue simultaneously — stalls at depth 1–2
+  ·  No floating-point support (integer FLOPs only)
+  ·  Energy model is analytical (not Synopsys DC)
+
+LEFT COLUMN  —  Future work
+
+  ·  Software-pipeline strip-mined rows (removes VFENCE overhead)
+  ·  Deeper chaining  /  more functional units (memory + ALU overlap)
+  ·  OOO + vector integration (riscvooo + riscvvec)
+  ·  Floating-point lane (FP32 add/mul)
+  ·  Energy-calibrated model with Synopsys DC  +  .saif toggling
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+
+GRAPHICS REFERENCE
+──────────────────────────────────────────────────────────────────────────────
+Generated by make_slide_graphics.py:
+  perf_results/slide_s1_code_compare.png   →  Slide 1
+  perf_results/slide_s1_timeline.png       →  Slide 1 (backup / speaker view)
+  perf_results/slide_s2_encoding.png       →  backup / appendix
+  perf_results/slide_s2_categories.png     →  backup / appendix
+  perf_results/slide_s3_block_diagram.png  →  Slide 2
+  perf_results/slide_s3_fsm.png            →  Slide 2 (backup)
+  perf_results/slide_s3_chaining.png       →  Slide 3
+  perf_results/slide_s4_testing.png        →  Slide 4
+
+Generated by validate_perf.py:
+  perf_results/03_convoy_chime.png         →  backup / appendix
+  perf_results/04_cycle_budget.png         →  backup / appendix
+  perf_results/05_ubmark_baseline.png      →  Slide 4 (backup)
+
+From bench/plots/ (generated by bench/make_plots.py):
+  bench/plots/fig2_speedup_over_baseline.png  →  Slide 5  ← most important
+  bench/plots/fig3_daxpy_scaling.png          →  Slide 6
+  bench/plots/fig4_linpack_scaling.png        →  Slide 6  ← strongest result
+  bench/plots/fig7_edp.png                    →  Slide 7
+  bench/plots/fig8_queue_depth.png            →  Slide 6
+  bench/plots/fig9_chain_depth.png            →  Slide 6
+  bench/plots/fig10_ubmarks.png               →  Slide 4 (backup)
+  bench/plots/fig11_flops_per_cycle.png       →  Slide 5  ← new
+──────────────────────────────────────────────────────────────────────────────
+
+RAW NUMBERS REFERENCE
+──────────────────────────────────────────────────────────────────────────────
+New benchmarks (verified PASS on riscvvec-sim):
+
+  riscv-bmark-vvmul-vector.vmh   →  242 cycles,  44 inst,  IPC=0.182
+  riscv-bmark-vvmul-scalar.vmh   →  1508 cycles, 323 inst  (riscvbyp)
+  riscv-bmark-dotprod-vector.vmh →  235 cycles,  37 inst,  IPC=0.157
+  riscv-bmark-dotprod-scalar.vmh →  1469 cycles, 284 inst  (riscvbyp)
+
+Scalar processor cycle counts (same scalar benchmarks):
+  riscvlong: dotprod=479, vvmul=518
+  riscvooo:  dotprod=476, vvmul=549
+
+ISA test averages (riscvbyp, 43 scalar tests): 361 cycles avg
+ISA test averages (riscvvec, 3 vector tests):  246 cycles avg
+
+FLOPs/cycle summary:
+  Kernel       Scalar    Vector    Ratio
+  vvadd        0.071     0.132     1.9×
+  saxpy        0.022     0.143     6.6×
+  daxpy        0.043     0.234     5.4×
+  linpack      0.042     0.383     9.0×
+  vvmul        0.021     0.132     6.2×
+  dotprod      0.043     0.268     6.2×
+──────────────────────────────────────────────────────────────────────────────

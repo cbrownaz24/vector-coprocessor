@@ -95,7 +95,7 @@ def fig_cycles_per_kernel(processors, main_rows) -> Path:
 # ---------------------------------------------------------------------------
 
 def fig_speedup(processors, main_rows) -> Path:
-    bench_order = ["vvadd", "saxpy", "daxpy", "linpack"]
+    bench_order = ["vvadd", "saxpy", "daxpy", "linpack", "vvmul", "dotprod"]
     proc_order = ["riscvlong", "riscvooo", "riscvvec", "riscvvec-chained"]
 
     base = {}
@@ -552,6 +552,62 @@ def fig_ubmarks(processors, main_rows) -> Path:
 
 
 # ---------------------------------------------------------------------------
+# fig 11: FLOPs/cycle comparison across kernels (scalar vs vector)
+# ---------------------------------------------------------------------------
+
+def fig_flops_per_cycle(processors, main_rows, benchmarks_cfg) -> Path:
+    bench_order = ["vvadd", "saxpy", "daxpy", "linpack", "vvmul", "dotprod"]
+    flops_map = {bm["name"]: bm.get("flops", 0) for bm in benchmarks_cfg["benchmarks"]}
+
+    scalar_fpc, vector_fpc = [], []
+    labels = []
+    for bm in bench_order:
+        flops = flops_map.get(bm, 0)
+        if not flops:
+            continue
+        s_row = next((r for r in main_rows if r["benchmark"] == bm
+                      and r["processor"] == "riscvbyp" and r["mode"] == "scalar"
+                      and r["passed"]), None)
+        v_row = next((r for r in main_rows if r["benchmark"] == bm
+                      and r["processor"] == "riscvvec" and r["mode"] == "vector"
+                      and r["passed"]), None)
+        if s_row is None or v_row is None:
+            continue
+        labels.append(bm)
+        scalar_fpc.append(flops / s_row["cycles"])
+        vector_fpc.append(flops / v_row["cycles"])
+
+    x = np.arange(len(labels))
+    width = 0.38
+    fig, ax = plt.subplots(figsize=(10, 5))
+    bars1 = ax.bar(x - width/2, scalar_fpc, width, label="Scalar (riscvbyp)",
+                   color="#777777", edgecolor="black", linewidth=0.4)
+    bars2 = ax.bar(x + width/2, vector_fpc, width, label="Vector (riscvvec)",
+                   color="#1f6f8b", edgecolor="black", linewidth=0.4)
+    for bar, v in zip(bars1, scalar_fpc):
+        ax.text(bar.get_x() + bar.get_width()/2, v + 0.003, f"{v:.3f}",
+                ha="center", va="bottom", fontsize=8.5)
+    for bar, v in zip(bars2, vector_fpc):
+        ax.text(bar.get_x() + bar.get_width()/2, v + 0.003, f"{v:.3f}",
+                ha="center", va="bottom", fontsize=8.5)
+    for i in range(len(labels)):
+        if scalar_fpc[i] > 0:
+            ratio = vector_fpc[i] / scalar_fpc[i]
+            ymax = max(scalar_fpc[i], vector_fpc[i])
+            ax.text(x[i], ymax * 1.35, f"{ratio:.1f}x",
+                    ha="center", va="center", fontsize=9, fontweight="bold",
+                    color="#b04a3f")
+    ax.set_xticks(x)
+    ax.set_xticklabels(labels)
+    ax.set_ylabel("FLOPs / cycle")
+    ax.set_title("Compute efficiency: FLOPs per cycle (scalar vs vector)")
+    ax.legend(loc="upper left")
+    ax.set_ylim(0, max(vector_fpc) * 1.55)
+    fig.tight_layout()
+    return L.save(fig, "fig11_flops_per_cycle.png")
+
+
+# ---------------------------------------------------------------------------
 # driver
 # ---------------------------------------------------------------------------
 
@@ -577,6 +633,7 @@ def main() -> int:
         fig_queue_sweep(queue_rows),
         fig_chain_depth(processors, chain_rows),
         fig_ubmarks(processors, main_rows),
+        fig_flops_per_cycle(processors, main_rows, benchmarks_cfg),
     ]
     for p in figs:
         print(f"wrote {p.relative_to(L.THIS_DIR)}")
