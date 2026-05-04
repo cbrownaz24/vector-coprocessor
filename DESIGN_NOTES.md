@@ -3,6 +3,12 @@
 
 ---
 
+## PROPOSAL
+
+We propose an extension of the classic RISC-V processor to include decoupled vector operations. This vector coprocessor will interface with the base processor using the val-rdy protocol to accept vector operations such as. While this may often be implemented as part of the main processor with an extended pipeline, integrating it as an independent coprocessor will allow the primary processor to continue its operation without stalls. This will involve updating the current register file to support 32 elements in parallel, as well as several SIMD lanes capable of performing these specific operations efficiently and in parallel. We anticipate that much of the control logic will be similar to that of the instructions’ scalar counterparts, though likely a focus on optimizing a small set of possible dependencies rather than for covering a wide breadth. We will add a queue so that multiple operations can wait for the vector processor, particularly useful for oversize vector operations that may need to be split up into multiple sequential operations. Our processor will be able to perform the five following vector instructions: vector-vector sum, vector-vector element-wise product, vector-scalar multiply, vector-scalar sum, vector sum reduction. In addition to these functional operations, we will also implement an instruction to set vector length for large vector support, a fence instruction to wait for the vector processor to flush, and vector memory load/store instructions. 
+To evaluate this processor’s benefit, we will use a variety of different programs with different sequential-parallel ratios, as well as testing cases where the queue fills up completely, or the scalar processor needs the data immediately. This should be able to provide us with use cases where the speedup is the most versus where the vector processor adds complexity without any gain, to give us an idea of how to build software most compatible with the given hardware. Additionally, if time permits, we will attempt to incorporate this coprocessor as an additional pipeline in the out of order processor to see how the separation of the two impacts both performance and complexity. 
+
+
 ## 1. Project Overview
 
 We are extending the `riscvbyp` (5-stage bypassing pipeline) RISC-V processor with a
