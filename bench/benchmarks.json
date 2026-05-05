@@ -8,6 +8,7 @@
       "vector_vmh": "riscv-bmark-vvadd-vector.vmh",
       "size": 32,
       "vec_dispatches": 6,
+      "flops": 32,
       "description": "32-element vector add, the simplest memory-bound kernel."
     },
     {
@@ -17,6 +18,7 @@
       "vector_vmh": "riscv-bmark-saxpy-vector.vmh",
       "size": 16,
       "vec_dispatches": 5,
+      "flops": 16,
       "description": "16-element scale: y = a*x. One multiply per element."
     },
     {
@@ -26,6 +28,7 @@
       "vector_vmh": "riscv-bmark-daxpy-vector.vmh",
       "size": 32,
       "vec_dispatches": 8,
+      "flops": 64,
       "description": "32-element y = a*x + y. Has VSMUL->VVADD chainable producer/consumer."
     },
     {
@@ -35,7 +38,28 @@
       "vector_vmh": "riscv-bmark-linpack-vector-16x16.vmh",
       "size": 256,
       "vec_dispatches": 64,
+      "flops": 496,
       "description": "16x16 matrix-vector multiply (LINPACK kernel)."
+    },
+    {
+      "name": "vvmul",
+      "group": "kernels",
+      "scalar_vmh": "riscv-bmark-vvmul-scalar.vmh",
+      "vector_vmh": "riscv-bmark-vvmul-vector.vmh",
+      "size": 32,
+      "vec_dispatches": 7,
+      "flops": 32,
+      "description": "32-element element-wise multiply. Pure multiply throughput."
+    },
+    {
+      "name": "dotprod",
+      "group": "kernels",
+      "scalar_vmh": "riscv-bmark-dotprod-scalar.vmh",
+      "vector_vmh": "riscv-bmark-dotprod-vector.vmh",
+      "size": 32,
+      "vec_dispatches": 7,
+      "flops": 63,
+      "description": "32-element dot product: VVMUL + VREDSUM reduction to scalar."
     },
     {
       "name": "ubmark-vvadd",

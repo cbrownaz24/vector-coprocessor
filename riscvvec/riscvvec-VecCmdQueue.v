@@ -1,4 +1,4 @@
-// 4-entry fifo btwn scalar core and vec unit. each slot holds 1 decoded vec cmd.
+// 4-entry fifo queue
 `ifndef RISCV_VEC_CMD_QUEUE_V
 `define RISCV_VEC_CMD_QUEUE_V
 

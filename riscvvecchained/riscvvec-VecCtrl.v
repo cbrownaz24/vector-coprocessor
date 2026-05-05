@@ -1,11 +1,6 @@
 //=========================================================================
 // vec coproc ctrl (fsm) - chaining version
 //=========================================================================
-// adds a chain-issue path: if head of cmd queue is arith op and the 2nd
-// entry has a RAW dep on it, both cmds get dequeud together and run
-// lockstep in S_EXEC_CHAIN. consumer's chained opernad is fwded from
-// producer alu out (combo), and the other consumer opernad comes from
-// regfile's 3rd read port.
 
 `ifndef RISCV_VEC_CTRL_V
 `define RISCV_VEC_CTRL_V

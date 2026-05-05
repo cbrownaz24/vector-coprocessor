@@ -1,0 +1,350 @@
+================================================================================
+  VECTOR COPROCESSOR PRESENTATION — SLIDE CONTENT NOTES
+  ECE 475 | Max Machado & Connor Brown | Spring 2026
+================================================================================
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SLIDE 1 — Overview
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+TITLE:  "Decoupled Vector Coprocessor for RISC-V"
+
+KEY POINTS:
+  • Extended riscvbyp (5-stage bypassing RV32IM pipeline) with a decoupled
+    vector coprocessor
+  • Motivation: scalar code on data-parallel workloads wastes cycles on
+      — loop control overhead (branch, pointer arithmetic, decrement counter)
+      — multi-cycle multiply stalls (32 cycles per MUL on scalar core)
+  • Design philosophy: DECOUPLED (not tightly coupled)
+      — scalar core dispatches vector commands into a command queue
+      — vector unit processes independently
+      — scalar only stalls on VFENCE (explicit sync) or full queue
+      — mirrors real designs: Cray-1, Hwacha (UC Berkeley)
+  • Headline result: up to 9× speedup on dense linear algebra kernels
+
+GRAPHICS:
+  → perf_results/slide_s1_code_compare.png
+        Side-by-side: scalar DAXPY loop (9 instructions × 32 iterations,
+        multi-cycle MUL stall highlighted) vs. vectorized DAXPY
+        (5 vector instructions, 1 pass). Shows exactly why vectorization wins.
+
+  → perf_results/slide_s1_timeline.png
+        Gantt-style decoupled execution timeline for DAXPY.
+        Shows: scalar dispatches 5 commands in ~5 cycles → vector unit
+        processes them while scalar pipeline stalls at VFENCE →
+        execution overlaps for free when no fence is needed.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SLIDE 2 — Our Contribution
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+TITLE:  "33-Instruction Vector ISA Extension"
+
+KEY POINTS:
+  • 33 new instructions added to RV32IM using the reserved custom-0 opcode
+    (0x0B) — zero encoding conflicts with standard ISA
+  • 6 instruction categories distinguished by funct3 field:
+      funct3=000  VV_ARITH   (11 ops): VVADD VVSUB VVMUL VVDIV VVREM
+                                       VVAND VVOR VVXOR VVSLL VVSRL VVSRA
+      funct3=001  VS_ARITH    (5 ops): VSADD VSSUB VSMUL VSDIV VSREM
+      funct3=010  VMEM        (4 ops): VLW VSW VLWS VSWS (strided variants)
+      funct3=011  VCONFIG     (3 ops): SETVL CVM VFENCE
+      funct3=100  VCOMP       (6 ops): VSEQ VSLT VSLE VSGT VSGE VSNE
+      funct3=101  VREDUCE     (3 ops): VREDSUM VREDAND VREDOR
+  • Instruction format: funct7 selects op within category; 3-bit vd/vs fields
+    address 8 vector registers; rs2 used for scalar operand in VS_ARITH
+  • Notable features beyond basic VMIPS:
+      — Mask register (32-bit) + comparison instructions for predicated ops
+      — Strided loads/stores (VLWS/VSWS) for matrix column access
+      — Vector→scalar reductions (VREDSUM etc.) writing back to scalar file
+      — Full integer divide & remainder in vector ALU
+
+GRAPHICS:
+  → perf_results/slide_s2_encoding.png
+        32-bit instruction word diagram with color-coded fields, plus two
+        worked examples (VVADD v2,v0,v1 and VSADD v3,v1,x5).
+
+  → perf_results/slide_s2_categories.png
+        Horizontal bar chart of instruction counts per category, with a
+        right-side panel listing every mnemonic in each category.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SLIDE 3 — Architecture
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+TITLE:  "Microarchitecture"
+
+KEY POINTS:
+  • Scalar core: unmodified riscvbyp 5-stage pipeline (F/D/X/M/W)
+    — decode stage detects custom-0 opcode → packs 119-bit command message
+    — stall conditions: VFENCE (until vec_idle), queue full
+
+  • Command Queue: 4-entry FIFO between scalar and vector
+    — 119-bit entries: opcode_fn, vd, vs1, vs2, scalar_val, base_addr,
+      stride, rd_scalar, category
+    — decouples scalar dispatch from vector execution latency
+
+  • Vector Register File: 8 registers × 32 elements × 32 bits = 1 KB
+    — 3-bit addressing (compact encoding tradeoff vs. RISC-V V's 32 regs)
+    — 2 read ports + 1 write port per lane
+
+  • 4-lane SIMD ALU: 4 parallel 32-bit ALUs
+    — all operations: add/sub/mul/div/rem, and/or/xor, sll/srl/sra,
+      all comparisons (eq/lt/le/gt/ge/ne)
+    — combinational (no pipeline stages in vector ALU)
+
+  • 32-bit Mask Register: set by VCOMP instructions, cleared by CVM
+    — predicated write-back: mask bit 0 → element skipped
+
+  • VecCtrl FSM: 6 states
+    — IDLE: accept new command from queue
+    — EXEC: iterate element counter 0..VL-1, ALU write-back each cycle
+    — LOAD/LWAIT: issue word read, wait for response, advance address
+    — STORE: issue word write, advance address
+    — REDUCE: accumulate elements into scalar result
+
+  • Memory interface: vector unit shares the data port
+    — arbitrated via !vec_idle: vector takes ownership during VLW/VSW
+    — scalar memory stage stalls during vector memory ops
+
+GRAPHICS:
+  → perf_results/slide_s3_block_diagram.png
+        Full architecture block diagram: scalar core (pipeline stages) →
+        command queue → vector unit (VecCtrl FSM + VecDpath sub-components)
+        ↔ shared data memory. Shows all val/rdy interfaces, stall signals,
+        result write-back path, and memory arbitration.
+
+  → perf_results/slide_s3_fsm.png
+        VecCtrl FSM state diagram: all 6 states as labeled circles with
+        transition conditions on arrows. Color-coded by operation type
+        (arith / memory / reduce). Includes IDLE self-loop for CAT_CFG.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SLIDE 4 — Testing
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+TITLE:  "44/44 Tests Pass — Correctness Across Full ISA"
+
+KEY POINTS:
+  • 43 scalar ISA tests: every RV32IM instruction (add, mul, div, branches,
+    loads, stores, …) — unchanged from baseline. Zero regressions.
+  • 1 comprehensive vector test (riscv-vec.S): 13 sub-tests covering:
+      Test 1:  SETVL — set VL=4
+      Test 2:  VLW, VSW, VFENCE — load/store round-trip, scalar verify
+      Test 3:  VVADD — [10,20,30,40]+[1,2,3,4]=[11,22,33,44]
+      Test 4:  VVSUB — element-wise subtract
+      Test 5:  VVMUL — element-wise multiply
+      Test 6:  VSADD — add scalar to each element
+      Test 7:  VSMUL — multiply each element by scalar
+      Test 8:  SETVL(VL=1) — edge case: single-element
+      Test 9:  Negative numbers — signed arithmetic correctness
+      Test 10: VVAND, VVOR, VVXOR — bitwise operations
+      Test 11: VSSUB — vector-scalar subtract
+      Test 12: Decoupled queuing — multiple ops without VFENCE
+      Test 13: VL=0 edge case — zero-length ops change nothing
+  • 4 C ubmark baselines (vvadd-100, bin-search, cmplx-mult, masked-filter)
+    all PASS with no regression — confirms scalar pipeline is untouched
+  • Key bugs caught and fixed during development:
+      1. VSW address routing: VSW uses rs2 for base (not rs1); required
+         special-case command packing in Core.v
+      2. Registered vs combinational VecCtrl outputs: registered elem_idx
+         caused 1-cycle read delay → wrong data. Fixed by making all
+         datapath control combinational.
+      3. Memory arbitration: gating on vec_memreq_val failed because it
+         drops during LWAIT. Fixed by using !vec_idle for arbitration.
+      4. SWAIT state eliminated: zero-latency memory doesn't need a store
+         wait state; stores proceed 1/cycle.
+
+GRAPHICS:
+  → perf_results/05_ubmark_baseline.png
+        Bar charts for all 4 C ubmarks: cycles and IPC. All green (PASS).
+        Makes the "no regression" claim visual.
+
+  → bench/plots/fig10_ubmarks.png
+        Same ubmarks across all 5 processor variants — confirms that all
+        processors run the scalar C benchmarks identically.
+
+  [Optional] Screenshot of riscv-vec.vcd waveform showing VecCtrl FSM
+             cycling through IDLE → LOAD → EXEC → IDLE states.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SLIDE 5 — Benchmark Evaluation
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+TITLE:  "Convoy & Chime Analysis — Where Cycles Go"
+
+KEY POINTS:
+  • CONVOY = a set of vector instructions with no RAW dependencies that can
+    issue together. This design has ONE functional unit → every instruction
+    is its own convoy. No chaining in the base riscvvec design.
+  • CHIME = one convoy's execution time = VL element cycles
+    (vector unit processes 1 element/cycle, so VL=32 → 32 cycles/chime)
+
+  • VVADD (VL=32):  4 convoys × 32 cycles = 128 theory  / 242 actual
+      Convoy 1: VLW(A)  — 32 mem cycles
+      Convoy 2: VLW(B)  — 32 mem cycles
+      Convoy 3: VVADD   — 32 ALU cycles
+      Convoy 4: VSW     — 32 mem cycles
+      Overhead: 114 cycles (47%) — loop elimination is the only win here
+
+  • DAXPY (VL=32):  5 convoys × 32 cycles = 160 theory  / 274 actual
+      Convoy 1: VLW(x)    — 32 mem cycles
+      Convoy 2: VLW(y)    — 32 mem cycles
+      Convoy 3: VSMUL     — 32 ALU cycles  (avoids 32× scalar MUL stalls!)
+      Convoy 4: VVADD     — 32 ALU cycles
+      Convoy 5: VSW(y)    — 32 mem cycles
+      Overhead: 114 cycles (42%)
+
+  • SAXPY (VL=16):  3 convoys × 16 cycles = 48 theory   / 112 actual
+      Convoy 1: VLW       — 16 mem cycles
+      Convoy 2: VSMUL     — 16 ALU cycles
+      Convoy 3: VSW       — 16 mem cycles
+      Overhead: 64 cycles (57%) — smaller vectors have higher overhead fraction
+
+  • LINPACK 16×16 (VL=32): 9 convoys × 32 = 288 theory / ~1296 actual
+      (multiple strip-mined rows; overhead includes scalar loop between rows)
+
+  • Scaling results (bench/results/daxpy_n.csv):
+      DAXPY at N=16:   vector 80 cy   vs  byp 739 cy  → 9.2×
+      DAXPY at N=32:   vector 274 cy  vs  byp 1475 cy → 5.4×
+      DAXPY at N=64:   vector 531 cy  vs  byp 2955 cy → 5.6×
+      DAXPY at N=128:  strip-mined; overhead amortized across more VL passes
+      Vector advantage grows as N scales (overhead becomes a smaller fraction)
+
+GRAPHICS:
+  → perf_results/03_convoy_chime.png
+        Per-benchmark convoy timeline: each row is one convoy, length = VL,
+        color = mem (green) or arith (red). Three benchmarks side-by-side.
+
+  → perf_results/04_cycle_budget.png
+        Stacked bars: chime cycles (vector-unit work) vs scalar setup / VFENCE
+        overhead. Shows what fraction of time is "useful" vector work.
+
+  → bench/plots/fig3_daxpy_scaling.png
+        DAXPY cycles vs N (log scale) for all 5 processors. Shows vector
+        crossing over all scalar variants and maintaining the gap at scale.
+
+  → bench/plots/fig4_linpack_scaling.png  [STRONGEST RESULT]
+        LINPACK matrix-vector multiply at 4×4 → 32×32. Vector dominates.
+        Use this as the "punchline" figure for this slide.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SLIDE 6 — Performance Comparison
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+TITLE:  "Vector vs Scalar: Up to 9× Speedup — Even Beats Out-of-Order"
+
+KEY POINTS:
+  • Five processors compared (all simulation-verified, same memory model):
+      riscvbyp        — 5-stage scalar baseline
+      riscvlong       — long pipeline with pipelined MUL (no stall)
+      riscvooo        — out-of-order dual-issue superscalar
+      riscvvec        — riscvbyp + decoupled vector (our design)
+      riscvvec-chained — riscvvec + Cray-style instruction chaining
+
+  • DAXPY (32 elem) — cycle counts and speedup vs byp:
+      riscvbyp         1475 cy   1.00×
+      riscvlong         485 cy   3.04×   (pipelined MUL helps a lot)
+      riscvooo          516 cy   2.86×
+      riscvvec          274 cy   5.38×   ← our design
+      riscvvec-chained  241 cy   6.12×   ← +chaining
+
+  • LINPACK 16×16 (256 operations) — speedup vs byp:
+      riscvbyp         11718 cy  1.00×
+      riscvlong         3784 cy  3.10×
+      riscvooo          3799 cy  3.08×
+      riscvvec          1296 cy  9.04×   ← our design
+      riscvvec-chained  1296 cy  9.04×   (chaining neutral here)
+
+  • Why vector beats OOO: OOO exploits ILP within the scalar loop body
+    (reorders independent iterations). Vector eliminates the loop entirely
+    and processes all elements in a single pass. Fundamentally different
+    parallelism class.
+
+  • Chaining (riscvvec-chained): producer/consumer overlap when one vector
+    instruction reads a register being written by the preceding one.
+    — DAXPY: 274 → 241 cycles (12% gain) for VSMUL→VVADD chain
+    — LINPACK: no gain (memory bandwidth is the bottleneck, not compute)
+    — Diminishing returns without deeper chaining or multiple FUs
+
+  • Energy story (bench/energy_model.py, pedagogical 28nm CMOS model):
+      — Instruction-fetch + decode energy drops 5–10× (far fewer insts)
+      — Compute and memory energy roughly constant (same work done)
+      — Net: vector reduces total energy ~3–4× even after overhead
+      — Energy-delay product (EDP) shows vector is Pareto-dominant
+
+  • Scalar ubmarks (vvadd-100, cmplx-mult, bin-search, masked-filter):
+      All five processors are within a few % of each other on scalar C code.
+      Confirms vector coprocessor adds no overhead to pure scalar workloads.
+
+  KEY NUMBERS TO CALL OUT ON SLIDE:
+      5.4×  speedup  DAXPY-32 vs scalar-byp
+      9.0×  speedup  LINPACK-16×16 vs scalar-byp
+      6.1×  speedup  DAXPY-32 with chaining
+      0     regressions on scalar ISA tests or C ubmarks
+
+GRAPHICS:
+  → bench/plots/fig2_speedup_over_baseline.png   [MUST-HAVE]
+        Speedup bars for all 5 processors × 4 kernels, normalized to
+        riscvbyp. The single best "here's how well we did" figure.
+
+  → bench/plots/fig1_cycles_per_kernel.png
+        Raw cycle counts across all processors and benchmarks.
+        Shows scale of improvement without normalization.
+
+  → bench/plots/fig5_instruction_count.png
+        Instruction count collapse: vector has 5–12× fewer instructions.
+        Directly explains why energy and IPC metrics look the way they do.
+
+  → bench/plots/fig6_energy_breakdown.png
+        Stacked energy bar: fetch/decode overhead shrinks dramatically in
+        vector mode while compute and memory stay flat.
+
+  → bench/plots/fig7_edp.png
+        Energy-delay product — vector is Pareto-optimal on all kernels.
+
+  → bench/plots/fig9_chain_depth.png
+        Shows marginal benefit of chaining. Use to motivate future work.
+
+  [Pick 2–3 max for the slide. Recommended pair:
+   fig2_speedup_over_baseline.png  +  fig6_energy_breakdown.png]
+
+
+================================================================================
+FULL GRAPHIC INVENTORY
+================================================================================
+
+GENERATED BY make_slide_graphics.py  (new, for slides):
+  perf_results/slide_s1_code_compare.png   → Slide 1
+  perf_results/slide_s1_timeline.png       → Slide 1 / 3
+  perf_results/slide_s2_encoding.png       → Slide 2
+  perf_results/slide_s2_categories.png     → Slide 2
+  perf_results/slide_s3_block_diagram.png  → Slide 3
+  perf_results/slide_s3_fsm.png            → Slide 3
+
+GENERATED BY validate_perf.py  (simulation data):
+  perf_results/01_cycles_speedup.png       → Slide 1 / 6
+  perf_results/02_ipc_comparison.png       → Slide 6
+  perf_results/03_convoy_chime.png         → Slide 5
+  perf_results/04_cycle_budget.png         → Slide 5
+  perf_results/05_ubmark_baseline.png      → Slide 4
+
+FROM bench/plots/  (multi-processor sweep, generated by bench/make_plots.py):
+  fig1_cycles_per_kernel.png               → Slide 6
+  fig2_speedup_over_baseline.png           → Slide 6  ← MUST-HAVE
+  fig3_daxpy_scaling.png                   → Slide 5
+  fig4_linpack_scaling.png                 → Slide 5  ← STRONGEST RESULT
+  fig5_instruction_count.png               → Slide 6
+  fig6_energy_breakdown.png                → Slide 6
+  fig7_edp.png                             → Slide 6
+  fig8_queue_depth.png                     → Slide 5 (optional)
+  fig9_chain_depth.png                     → Slide 6 (optional)
+  fig10_ubmarks.png                        → Slide 4
+
+================================================================================

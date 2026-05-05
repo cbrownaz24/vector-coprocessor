@@ -46,7 +46,7 @@ module riscv_Core
   wire [31:0] imemreq_msg_addr;
   wire [31:0] imemresp_msg_data;
 
-  // Scalar core data memory signals (before arbitration)
+  // Scalar data memory signals (before arbitration)
   wire        scalar_dmemreq_msg_rw;
   wire  [1:0] scalar_dmemreq_msg_len;
   wire [31:0] scalar_dmemreq_msg_addr;
@@ -87,7 +87,7 @@ module riscv_Core
   wire        branch_cond_geu_Xhl;
   wire [31:0] proc2csr_data_Whl;
 
-  // Vector coprocessor interface wires
+  // coprocessor val/rdy interface
   wire         vec_cmd_val_Dhl;
   wire         vec_cmd_rdy;
   wire [118:0] vec_cmd_msg_Dhl;
@@ -97,7 +97,7 @@ module riscv_Core
   wire [31:0]  vec_reduce_result;
   wire [ 4:0]  vec_reduce_rd;
 
-  // Vector memory interface wires
+  // vector memory val/rdy interface
   wire        vec_memreq_val;
   wire        vec_memreq_rdy;
   wire        vec_memreq_rw;
@@ -111,32 +111,28 @@ module riscv_Core
   wire [31:0] op1_byp_mux_out_Dhl_wire;
 
   //----------------------------------------------------------------------
-  // Memory Arbitration: Scalar core vs Vector unit
+  // Memory Arbitration
   //----------------------------------------------------------------------
-  // Vector unit owns the memory port whenever it is NOT idle.
-  // This is simpler and correct: when the vector unit is processing
-  // any command (including loads/stores), the scalar core cannot use
-  // the data memory port.
 
   wire vec_mem_active = !vec_idle;
 
-  // Actual memory request signals (after arbitration)
+  // resolved memory request
   wire        dmemreq_msg_rw;
   wire  [1:0] dmemreq_msg_len;
   wire [31:0] dmemreq_msg_addr;
   wire [31:0] dmemreq_msg_data;
 
-  assign dmemreq_msg_rw   = vec_mem_active ? vec_memreq_rw          : scalar_dmemreq_msg_rw;
-  assign dmemreq_msg_len  = vec_mem_active ? 2'd0                   : scalar_dmemreq_msg_len;
-  assign dmemreq_msg_addr = vec_mem_active ? vec_memreq_addr        : scalar_dmemreq_msg_addr;
-  assign dmemreq_msg_data = vec_mem_active ? vec_memreq_data        : scalar_dmemreq_msg_data;
+  assign dmemreq_msg_rw = vec_mem_active ? vec_memreq_rw : scalar_dmemreq_msg_rw;
+  assign dmemreq_msg_len = vec_mem_active ? 2'd0 : scalar_dmemreq_msg_len;
+  assign dmemreq_msg_addr = vec_mem_active ? vec_memreq_addr : scalar_dmemreq_msg_addr;
+  assign dmemreq_msg_data = vec_mem_active ? vec_memreq_data : scalar_dmemreq_msg_data;
 
-  // Memory ready/valid routing
+  // Memory val/rdy
   assign vec_memreq_rdy  = vec_mem_active ? dmemreq_rdy  : 1'b0;
   assign vec_memresp_val  = vec_mem_active ? dmemresp_val : 1'b0;
   assign vec_memresp_data = dmemresp_msg_data;
 
-  // Scalar core sees dmemreq_rdy only when vector is not active
+  // scalar/cop interface val/rdy
   wire scalar_dmemreq_rdy  = vec_mem_active ? 1'b0 : dmemreq_rdy;
   wire scalar_dmemresp_val = vec_mem_active ? 1'b0 : dmemresp_val;
 
@@ -189,21 +185,19 @@ module riscv_Core
   //----------------------------------------------------------------------
   // Vector Command Message Assembly
   //----------------------------------------------------------------------
-  // The ctrl module provides a template with register indices.
-  // We fill in the scalar values from the datapath's bypass muxes.
 
-  // Detect instruction types for proper operand routing
+  // Detect instruction types
   wire is_vec_inst_core = (inst_Dhl[6:0] == 7'b0001011);
-  wire is_setvl       = is_vec_inst_core && (inst_Dhl[14:12] == 3'b011)
-                      && (inst_Dhl[31:25] == 7'b0000000);
+  wire is_setvl = is_vec_inst_core && (inst_Dhl[14:12] == 3'b011)
+                                   && (inst_Dhl[31:25] == 7'b0000000);
   // VSW: funct3=010, funct7=0000001. rs1 field = vector src, rs2 field = base addr
-  wire is_vsw         = is_vec_inst_core && (inst_Dhl[14:12] == 3'b010)
-                      && (inst_Dhl[31:25] == 7'b0000001);
+  wire is_vsw = is_vec_inst_core && (inst_Dhl[14:12] == 3'b010)
+                                 && (inst_Dhl[31:25] == 7'b0000001);
 
-  // scalar_val: for SETVL use rs1 (op0), for VS_ARITH use rs2 (op1)
+  // scalar_val: SETVL -> rs1 (op0), VS_ARITH -> rs2 (op1)
   wire [31:0] vec_scalar_val = is_setvl ? op0_byp_mux_out_Dhl_wire : op1_byp_mux_out_Dhl_wire;
 
-  // base_addr: for VSW use rs2 (op1), for everything else use rs1 (op0)
+  // base_addr: VSW -> rs2 (op1), else -> rs1 (op0)
   wire [31:0] vec_base_addr = is_vsw ? op1_byp_mux_out_Dhl_wire : op0_byp_mux_out_Dhl_wire;
 
   // stride: always rs2 (op1) for strided ops
@@ -352,7 +346,7 @@ module riscv_Core
     .branch_cond_geu_Xhl     (branch_cond_geu_Xhl),
     .proc2csr_data_Whl       (proc2csr_data_Whl),
 
-    // Vector bypass mux outputs (for command packing)
+    // Vector bypass mux outputs
     .op0_byp_mux_out_Dhl_out (op0_byp_mux_out_Dhl_wire),
     .op1_byp_mux_out_Dhl_out (op1_byp_mux_out_Dhl_wire),
 

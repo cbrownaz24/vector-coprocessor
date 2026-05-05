@@ -70,8 +70,7 @@ module riscv_VecDpath
   wire [31:0] prod_wdata = mem_load_wen ? memresp_data : prod_alu_out;
   wire        prod_wen   = vrf_wen;
 
-  // consumer wdata: just cons alu out (cant be a mem op or chain a load
-  // in this min impl)
+  // consumer wdata: just cons alu out
   wire [31:0] cons_wdata = cons_alu_out;
   wire        cons_wen   = cons_vrf_wen;
 
@@ -115,16 +114,6 @@ module riscv_VecDpath
   //----------------------------------------------------------------------
   // consumer alu w/ fwd muxes
   //----------------------------------------------------------------------
-  // in0: fwd path OR rf read 2
-  // in1: scalar OR fwd path OR rf read 2
-  // ctrl guarantees:
-  //   - cons_forward_in0=1 -> cons_vs1 == prod_vd; in0 takes fwd val,
-  //     vrf_rdata2 (if used) gives cons_vs2.
-  //   - cons_forward_in1=1 -> cons_vs2 == prod_vd; in1 takes fwd val,
-  //     vrf_rdata2 (if used) gives cons_vs1.
-  //   - both fwd_in0 + fwd_in1 set -> cmd2 reads prod_vd on both, both
-  //     cons inputs get fwd val, vrf_rdata2 unused.
-  //   - cons_use_scalar=1 (cat-VS cons) overrides in1 w/ scalar.
 
   wire [31:0] cons_in0 = cons_forward_in0 ? prod_alu_out : vrf_rdata2;
   wire [31:0] cons_in1 = cons_use_scalar  ? cons_scalar_val :
@@ -153,8 +142,7 @@ module riscv_VecDpath
   assign alu_result = prod_alu_out;
 
   //----------------------------------------------------------------------
-  // mask reg - producer cmps only (cons in chain mode is restrcited
-  // to non-cmp arith)
+  // mask reg - producer cmps only
   //----------------------------------------------------------------------
 
   always @(posedge clk) begin
