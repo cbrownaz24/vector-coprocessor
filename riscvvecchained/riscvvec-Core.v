@@ -111,12 +111,8 @@ module riscv_Core
   wire [31:0] op1_byp_mux_out_Dhl_wire;
 
   //----------------------------------------------------------------------
-  // Memory Arbitration: Scalar core vs Vector unit
+  // Memory Arbitration
   //----------------------------------------------------------------------
-  // Vector unit owns the memory port whenever it is NOT idle.
-  // This is simpler and correct: when the vector unit is processing
-  // any command (including loads/stores), the scalar core cannot use
-  // the data memory port.
 
   wire vec_mem_active = !vec_idle;
 

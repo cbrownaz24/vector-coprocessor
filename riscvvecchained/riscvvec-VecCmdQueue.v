@@ -1,8 +1,4 @@
-//=========================================================================
-// vec cmd queue (chained version)
-//=========================================================================
-// 4-entry fifo btwn scalar core and vec unit. exposes head AND 2nd entry
-// so ctrl can spot chaining and deq two in one cycle.
+// 4-entry fifo queue with top 2 exposed for chain detection
 
 `ifndef RISCV_VEC_CMD_QUEUE_V
 `define RISCV_VEC_CMD_QUEUE_V

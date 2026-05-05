@@ -492,21 +492,20 @@ module riscv_CoreCtrl
   end
 
   //----------------------------------------------------------------------
-  // Vector Instruction Detection and Dispatch
+  // Vector Instruction Dispatch
   //----------------------------------------------------------------------
 
   wire is_vec_inst_Dhl = inst_val_Dhl && (ir_Dhl[`RISCV_INST_MSG_OPCODE] == `RISCV_INST_MSG_CUSTOM0_OPCODE);
-  wire is_vfence_Dhl   = is_vec_inst_Dhl && (ir_Dhl[`RISCV_INST_MSG_FUNCT3] == 3'b011)
-                                          && (ir_Dhl[`RISCV_INST_MSG_FUNCT7] == 7'b0000010);
+  wire is_vfence_Dhl = is_vec_inst_Dhl && (ir_Dhl[`RISCV_INST_MSG_FUNCT3] == 3'b011)
+                                       && (ir_Dhl[`RISCV_INST_MSG_FUNCT7] == 7'b0000010);
 
-  // Vector command valid: send to coprocessor when instruction is valid and not stalled
-  // Don't dispatch VFENCE - it's handled by stalling
+  // Vector command valid
   wire vec_cmd_val_Dhl = is_vec_inst_Dhl && !is_vfence_Dhl && !stall_Dhl;
 
-  // Vector command message packing
+  // command message packing
   // Format: {category[1:0], rd_scalar[4:0], stride[31:0], base_addr[31:0], scalar_val[31:0], vs2[2:0], vs1[2:0], vd[2:0], opcode_fn[6:0]}
-  // category is derived from funct3
 
+ // extract funct3
   wire [1:0] vec_category_Dhl =
     (ir_Dhl[`RISCV_INST_MSG_FUNCT3] == 3'b000) ? 2'd0 :  // VV_ARITH
     (ir_Dhl[`RISCV_INST_MSG_FUNCT3] == 3'b001) ? 2'd1 :  // VS_ARITH
@@ -516,24 +515,17 @@ module riscv_CoreCtrl
     (ir_Dhl[`RISCV_INST_MSG_FUNCT3] == 3'b101) ? 2'd0 :  // REDUCE (uses VV_ARITH cat with reduction flag)
     2'd0;
 
-  // Build the opcode_fn field: encode funct7 lower bits + category flags
+  // Build opcode_fn
   wire [6:0] vec_opcode_fn_Dhl;
   assign vec_opcode_fn_Dhl[3:0] = ir_Dhl[28:25];  // funct7 lower 4 bits
   assign vec_opcode_fn_Dhl[4]   = (ir_Dhl[`RISCV_INST_MSG_FUNCT3] == 3'b100); // comparison flag
   assign vec_opcode_fn_Dhl[5]   = (ir_Dhl[`RISCV_INST_MSG_FUNCT3] == 3'b101); // reduction flag
   assign vec_opcode_fn_Dhl[6]   = 1'b0;
 
-  // Pack the vector command message
-  // We need scalar register values from the datapath - these come via op0/op1 bypass muxes
-  // For VS_ARITH: scalar_val = rs2 value (from bypass mux output for op1)
-  // For VMEM: base_addr = rs1 value, stride = rs2 value
-  // For SETVL: scalar_val = rs1 value
-  // These are wired up in the Core module from the datapath
-
   assign vec_cmd_val_Dhl_out = vec_cmd_val_Dhl;
 
-  // VSWS overload: rs1 field holds base_reg, rs2 holds stride, so vs1 (the vector source register being stored) is encoded in the rd
-  // slot of the instruction instead. Detect VSWS and route vs1 from there. (funct3=VMEM=3'b010, funct7 lower = 4'd3.)
+  // VSWS overload
+  (funct3=VMEM=3'b010, funct7 lower = 4'd3.)
   wire is_vsws_Dhl =
        (ir_Dhl[`RISCV_INST_MSG_FUNCT3] == 3'b010) &&
        (ir_Dhl[28:25] == 4'd3);
